@@ -11,18 +11,6 @@ import { relativeTime } from '../utils/time';
 import { CategoryBadge, StatCard, RoundButton } from '../components/ui';
 import { Loading } from '../components/Status';
 
-// The facilities grid: everything the data can actually say yes or no to.
-// Present ones are filled with a tick, absent ones greyed with a cross —
-// the design shows both, so a missing facility is stated rather than implied.
-const FACILITY_FIELDS = [
-  { key: 'wheelchair', label: 'Step-free access' },
-  { key: 'babyChange', label: 'Baby changing' },
-  { key: 'genderNeutral', label: 'Gender-neutral' },
-  { key: 'isFree', label: 'Free to use' },
-  { key: 'noKey', label: 'No key needed' },
-  { key: 'open24', label: 'Open 24h' },
-];
-
 export default function DetailScreen({ t }) {
   const { id } = useParams();
   const navigate = useNavigate();
@@ -38,18 +26,8 @@ export default function DetailScreen({ t }) {
 
   const isSaved = saved.includes(id);
 
-  const facilities = useMemo(() => {
-    if (!cur) return [];
-    const has = {
-      wheelchair: cur.wheelchair,
-      babyChange: cur.babyChange,
-      genderNeutral: cur.genderNeutral,
-      isFree: cur.fee === 'Free',
-      noKey: !cur.needsKey,
-      open24: cur.hoursKnown && cur.openFrom === 0 && cur.openTo >= 24,
-    };
-    return FACILITY_FIELDS.map((f) => ({ label: f.label, has: !!has[f.key] }));
-  }, [cur]);
+  // Decorated stops already carry this, resolved in one place.
+  const facilities = cur?.facilities ?? [];
 
   const nearby = useMemo(() => allDecorated
     .filter((w) => w.id !== id)

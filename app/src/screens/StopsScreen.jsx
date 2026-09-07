@@ -208,18 +208,23 @@ export default function StopsScreen({ t }) {
               )}
             </div>
 
+            {/* Only what this stop actually has — the same resolved list the
+                map and the detail screen use. */}
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-              {w.tags.map((tag) => (
+              {w.facilities.filter((f) => f.has).map((f) => (
                 <span
-                  key={tag.label}
+                  key={f.key}
                   style={{
                     padding: '5px 10px', borderRadius: 8, background: t.chip,
                     fontSize: 12, fontWeight: 600, color: t.body,
                   }}
                 >
-                  {tag.label}
+                  {f.short}
                 </span>
               ))}
+              {w.facilities.every((f) => !f.has) && (
+                <span style={{ fontSize: 12, color: t.sub }}>No facilities recorded</span>
+              )}
             </div>
           </button>
         ))}
