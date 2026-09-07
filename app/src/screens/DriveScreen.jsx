@@ -10,6 +10,10 @@ import {
 } from '../lib/routing';
 import { formatDistance, formatDuration } from '../utils/geo';
 import { decorateWashroom } from '../utils/decorate';
+
+// Inlined rather than imported from lib/imagery so that module stays inside
+// the lazily-loaded 3D chunk.
+const IMAGERY_CREDIT = 'Imagery © Esri, Maxar, Earthstar Geographics';
 import { RoundButton, PrimaryButton } from '../components/ui';
 // three.js is most of a megabyte; nobody should download it to look at a list
 // of washrooms. It arrives when the drive preview does.
@@ -127,6 +131,16 @@ export default function DriveScreen({ t }) {
           }}
           >
             Flat ground — elevation data unavailable
+          </span>
+        )}
+        {/* Esri's terms require the credit wherever the imagery is shown. */}
+        {sceneStatus?.imagery && (
+          <span style={{
+            position: 'absolute', right: 10, bottom: 4, fontSize: 8.5, fontWeight: 500,
+            color: '#fff', opacity: 0.6, textShadow: '0 1px 2px rgba(0,0,0,.7)',
+          }}
+          >
+            {IMAGERY_CREDIT}
           </span>
         )}
         {sceneStatus?.source === 'points' && (

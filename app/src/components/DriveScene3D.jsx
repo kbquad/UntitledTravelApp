@@ -3,6 +3,7 @@ import * as THREE from 'three';
 import { buildCorridor } from '../lib/corridor';
 import { elevations } from '../lib/elevation';
 import { demSampler } from '../lib/dem';
+import { imagerySampler, corridorTexture } from '../lib/imagery';
 
 // The 3D drive: the real routed road, laid on real ground, flown from a
 // camera that advances with the preview.
@@ -30,6 +31,14 @@ const ACROSS = 31;
 // grid collapses to something it can actually answer.
 const COARSE_ALONG = 90;
 const COARSE_ACROSS = 9;
+
+// Deliberately modest. A wide corridor needs a heavily smoothed spine to stay
+// unfolded, and a smoothed spine cuts corners — which pushes the real road
+// kilometres away from the columns the ground is sampled on, so the carve
+// never reaches the carriageway and the camera ends up under raw terrain.
+// The camera can see about 1.3 km and fog closes the rest, so a tight
+// corridor that hugs the road beats a wide one that abandons it.
+const HALF_KM = 2.5;
 
 // Keeps the road from sawtoothing up and down every rise the sampler catches.
 function smoothProfile(values, passes = 3) {
@@ -106,12 +115,29 @@ export default function DriveScene3D({
     sun.position.set(-1, 1.4, -1).multiplyScalar(10000);
     scene.add(sun);
 
-    const group = new THREE.Group();
+    // The scene is rebuilt as better ground arrives (flat draft -> terrain ->
+    // terrain with imagery). Each pass builds into its own group and swaps it
+    // in only once complete, so there is never a frame with nothing in it.
+    let group = new THREE.Group();
     scene.add(group);
 
+    const disposeGroup = (g) => {
+      g.traverse((o) => {
+        o.geometry?.dispose?.();
+        if (o.material) {
+          o.material.map?.dispose?.();
+          o.material.dispose?.();
+        }
+      });
+    };
+
     // ── geometry ────────────────────────────────────────────────────────────
-    const build = (corridor, gridH, roadHRaw, source) => {
+    const maxAniso = renderer.capabilities.getMaxAnisotropy?.() ?? 1;
+    const maxTexture = renderer.capabilities.maxTextureSize ?? 4096;
+
+    const build = (corridor, gridH, roadHRaw, source, drape = null) => {
       if (disposed) return;
+      const next = new THREE.Group();
       const {
         road, spine, frames: fr, offsets, across, totalM,
       } = corridor;
@@ -128,6 +154,7 @@ export default function DriveScene3D({
       const TAPER = 420;
       const positions = new Float32Array(along * across * 3);
       const colors = new Float32Array(along * across * 3);
+      const uvs = new Float32Array(along * across * 2);
 
       // Colour comes from the height itself — valley floor through rock to
       // snow — so what is on screen is the elevation data rather than a
@@ -168,6 +195,12 @@ export default function DriveScene3D({
           colors[o] = col[0];
           colors[o + 1] = col[1];
           colors[o + 2] = col[2];
+
+          // The corridor texture is built on exactly this parameterisation,
+          // so along/across index maps straight onto it.
+          const uo = (i * across + j) * 2;
+          uvs[uo] = i / (along - 1);
+          uvs[uo + 1] = j / (across - 1);
         }
       }
 
@@ -185,15 +218,33 @@ export default function DriveScene3D({
       const terrainGeo = new THREE.BufferGeometry();
       terrainGeo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
       terrainGeo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+      terrainGeo.setAttribute('uv', new THREE.BufferAttribute(uvs, 2));
       terrainGeo.setIndex(indices);
       terrainGeo.computeVertexNormals();
 
-      const terrain = new THREE.Mesh(terrainGeo, new THREE.MeshLambertMaterial({
-        vertexColors: true,
-        side: THREE.DoubleSide,
-        flatShading: false,
-      }));
-      group.add(terrain);
+      // Satellite imagery when it can be had, elevation banding when it
+      // can't — never both, or the banding tints the photograph.
+      let terrainMat;
+      if (drape) {
+        const tex = new THREE.CanvasTexture(drape);
+        tex.colorSpace = THREE.SRGBColorSpace;
+        tex.anisotropy = maxAniso;
+        tex.wrapS = THREE.ClampToEdgeWrapping;
+        tex.wrapT = THREE.ClampToEdgeWrapping;
+        terrainMat = new THREE.MeshLambertMaterial({
+          map: tex,
+          side: THREE.DoubleSide,
+          // Night keeps the imagery but drops it back, so the scene reads as
+          // dark without turning the ground into a black void.
+          color: new THREE.Color(t.dark ? 0x5a6472 : 0xffffff),
+        });
+      } else {
+        terrainMat = new THREE.MeshLambertMaterial({
+          vertexColors: true,
+          side: THREE.DoubleSide,
+        });
+      }
+      next.add(new THREE.Mesh(terrainGeo, terrainMat));
 
       // The road itself: a ribbon on the real routed line, lifted just clear
       // of the carved ground.
@@ -256,7 +307,7 @@ export default function DriveScene3D({
       roadTex.colorSpace = THREE.SRGBColorSpace;
       roadTex.anisotropy = 4;
 
-      group.add(new THREE.Mesh(roadGeo, new THREE.MeshLambertMaterial({
+      next.add(new THREE.Mesh(roadGeo, new THREE.MeshLambertMaterial({
         map: roadTex,
         side: THREE.DoubleSide,
       })));
@@ -277,43 +328,59 @@ export default function DriveScene3D({
         const col = new THREE.Color(s.categoryColor || t.accent);
         const pole = new THREE.Mesh(poleGeo, new THREE.MeshLambertMaterial({ color: col }));
         pole.position.set(p.x, baseY + 75, p.z);
-        group.add(pole);
+        next.add(pole);
         const head = new THREE.Mesh(markerGeo, new THREE.MeshBasicMaterial({ color: col }));
         head.position.set(p.x, baseY + 175, p.z);
-        group.add(head);
+        next.add(head);
       });
+
+      // Swap only now that `next` is complete.
+      scene.remove(group);
+      disposeGroup(group);
+      group = next;
+      scene.add(group);
 
       stateRef.current = {
         road, roadH, along, totalM,
       };
-      if (onStatus) onStatus({ ready: true, source });
+      if (onStatus) onStatus({ ready: true, source, imagery: !!drape });
     };
 
-    const clearGroup = () => {
-      while (group.children.length) {
-        const child = group.children.pop();
-        child.geometry?.dispose?.();
-        child.material?.dispose?.();
-      }
-    };
 
     // Draw something immediately — a flat draft at low resolution — so the
     // panel is never a blank rectangle while the ground is being fetched.
-    const draft = buildCorridor(path, { along: COARSE_ALONG, across: COARSE_ACROSS, halfKm: 6 });
+    const draft = buildCorridor(path, { along: COARSE_ALONG, across: COARSE_ACROSS, halfKm: HALF_KM });
     build(draft, new Array(draft.along * draft.across).fill(0), new Array(draft.along).fill(0), 'flat');
 
     (async () => {
-      // Tiles first: they carry enough detail for a camera that looks about a
-      // kilometre ahead, and cost a few dozen requests rather than hundreds.
-      const dem = await demSampler([...draft.samples, ...draft.roadLatLng], { signal: controller.signal });
+      // Build the detailed corridor FIRST, and fetch tiles against its own
+      // samples. The draft sizes itself independently — buildCorridor widens
+      // or narrows to suit the curvature it measures — so tiles chosen from
+      // the draft can miss ground the fine mesh actually covers, leaving
+      // elevation holes and grey patches in the drape.
+      const fine = buildCorridor(path, { along: ALONG, across: ACROSS, halfKm: HALF_KM });
+      const cover = [...fine.samples, ...fine.roadLatLng];
+
+      // Tiles carry enough detail for a camera that looks about a kilometre
+      // ahead, and cost a few dozen requests rather than hundreds.
+      const dem = await demSampler(cover, { signal: controller.signal });
       if (disposed) return;
 
       if (dem) {
-        const fine = buildCorridor(path, { along: ALONG, across: ACROSS, halfKm: 6 });
         const grid = fine.samples.map((p) => dem(p.lat, p.lng));
         const roadHeights = fine.roadLatLng.map((p) => dem(p.lat, p.lng));
-        clearGroup();
         build(fine, grid, roadHeights, 'dem');
+
+        // Then drape the photograph over that same shape. It arrives second
+        // on purpose: the landform is the part worth waiting the least for,
+        // and imagery is the heavier fetch of the two.
+        const shot = await imagerySampler(cover, { signal: controller.signal });
+        if (disposed || !shot) return;
+        const drape = corridorTexture(fine, shot, {
+          width: Math.min(4096, maxTexture), height: 256,
+        });
+        if (disposed) return;
+        build(fine, grid, roadHeights, 'dem', drape);
         return;
       }
 
@@ -321,7 +388,6 @@ export default function DriveScene3D({
       const all = await elevations([...draft.samples, ...draft.roadLatLng], { signal: controller.signal });
       if (disposed) return;
       if (!all) { if (onStatus) onStatus({ ready: true, source: 'flat' }); return; }
-      clearGroup();
       build(draft, all.slice(0, draft.along * draft.across), all.slice(draft.along * draft.across), 'points');
     })();
 
@@ -352,13 +418,26 @@ export default function DriveScene3D({
       if (!st) { renderer.render(scene, camera); return; }
 
       const f = Math.max(0, Math.min(1, progressRef.current));
-      const hereM = f * st.totalM;
+      // Never sit exactly on the first row: at the mesh edge the camera can
+      // see past the end of the ground, which reads as a slab of empty sky.
+      const hereM = Math.max(BEHIND_M + 60, f * st.totalM);
       const ahead = sampleAt(Math.min(st.totalM, hereM + AHEAD_M));
       const behind = sampleAt(Math.max(0, hereM - BEHIND_M));
 
       // Close chase: a couple of hundred metres back and low enough that the
       // road fills the frame, looking about a kilometre up the carriageway.
-      const target = new THREE.Vector3(behind.p.x, behind.y + 42, behind.p.z);
+      //
+      // The floor is a backstop, not decoration: the road profile is smoothed
+      // and grade-capped, so on a steep pass it can sit below the ground it
+      // runs through, and a camera pinned to it ends up inside a hillside.
+      // Riding above the highest road height nearby keeps it in open air.
+      let floor = behind.y;
+      const span = Math.max(1, Math.round((AHEAD_M / st.totalM) * (st.along - 1)));
+      const at = Math.round((hereM / st.totalM) * (st.along - 1));
+      for (let k = Math.max(0, at - 2); k <= Math.min(st.along - 1, at + span); k += 1) {
+        if (st.roadH[k] > floor) floor = st.roadH[k];
+      }
+      const target = new THREE.Vector3(behind.p.x, Math.max(behind.y + 42, floor + 18), behind.p.z);
       const aim = new THREE.Vector3(ahead.p.x, ahead.y + 8, ahead.p.z);
 
       if (first) { camPos.copy(target); lookAt.copy(aim); first = false; } else {
