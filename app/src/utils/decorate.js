@@ -30,6 +30,11 @@ export const decorateWashroom = (w, distMetres, units) => {
 
   const category = w.category || 'toilet';
 
+  // The design shows a cleanliness percentage on every stop card. This is the
+  // share of reviewers who rated it clean (4+) — a real tally, not a score
+  // invented to fill the slot — and it is null until somebody has reviewed it.
+  const cleanPct = w.reviewCount ? Math.round((w.cleanVotes / w.reviewCount) * 100) : null;
+
   return {
     ...w,
     dist: distMetres,
@@ -37,6 +42,8 @@ export const decorateWashroom = (w, distMetres, units) => {
     category,
     categoryLabel: categoryLabel(category),
     categoryColor: CATEGORY_COLOR[category] || CATEGORY_COLOR.toilet,
+    cleanPct,
+    cleanLabel: cleanPct == null ? 'Not rated' : `${cleanPct}% clean`,
     openNow: isOpenNow(w.openFrom, w.openTo),
     hoursKnown,
     hoursToday,

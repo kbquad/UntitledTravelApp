@@ -79,6 +79,9 @@ export const contrastSafe = (hex) => {
   return { hex: t, adjusted: true, ratio: ratioOnWhiteText(t) };
 };
 
+// The design's six accent swatches, verbatim.
+export const SWATCHES = ['#0F6E63', '#1F5FD0', '#C2410C', '#7C3AED', '#B01455', '#3F6212'];
+
 export const swatch = (h) => hslToHex(h, 76, 42);
 
 export const hueName = (h) => {
@@ -117,13 +120,15 @@ const DARK = {
   toastBg: '#F1EFEB', toastFg: '#101317',
 };
 
-export const makeTheme = (h, dark) => {
+// hue/sat/light are exactly what the design's colour wheel writes: angle and
+// distance from the centre of the wheel, plus the brightness slider.
+export const makeTheme = (h, s, l, dark) => {
   const base = dark ? DARK : LIGHT;
 
   // The accent the user picked, then made legible: darkened until white text
   // on it clears AA, and in dark mode lifted until it separates from the
   // background too.
-  const picked = hslToHex(h, 76, dark ? 46 : 30);
+  const picked = hslToHex(h, s, l);
   let safe = contrastSafe(picked);
   if (dark) {
     const c = hexToHsl(safe.hex);

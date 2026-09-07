@@ -3,215 +3,249 @@ import { useNavigate } from 'react-router-dom';
 import { useStore } from '../store';
 import { useDataStore } from '../dataStore';
 import { useWashroomData } from '../hooks/useWashroomData';
-import { CITIES } from '../data/locations';
-import { formatDistance } from '../utils/geo';
-import { IconGear } from '../components/Icons';
-import { ScoreBadge } from '../components/ui';
-import { Loading, ErrorNote, DemoBanner } from '../components/Status';
+import { formatDistance, formatDuration } from '../utils/geo';
+import { RoundButton } from '../components/ui';
+import { ErrorNote, DemoBanner } from '../components/Status';
+
+// The four squares under the trip card. `d` is the design's icon path.
+const ACTIONS = [
+  { label: 'Find a stop', path: '/stops', d: 'M21 10c0 6-9 12-9 12s-9-6-9-12a9 9 0 0 1 18 0Z', extra: 'circle' },
+  { label: 'Plan a route', path: '/plan', d: 'M4 19V7a3 3 0 0 1 3-3h6a4 4 0 0 1 0 8H9a4 4 0 0 0 0 8h11' },
+  { label: 'Saved places', path: '/saved', d: 'M6 3h12v18l-6-4-6 4Z' },
+  { label: 'Trip history', path: '/history', d: 'M12 7v5l3 2' , extra: 'clock' },
+];
 
 export default function Home({ t }) {
   const navigate = useNavigate();
-  const dark = useStore((s) => s.dark);
-  const toggleDark = useStore((s) => s.toggleDark);
-  const radius = useStore((s) => s.radius);
   const units = useStore((s) => s.units);
+  const displayName = useStore((s) => s.displayName);
+  const tripFrom = useStore((s) => s.tripFrom);
+  const tripTo = useStore((s) => s.tripTo);
+  const activeRoute = useStore((s) => s.activeRoute);
   const trips = useStore((s) => s.trips);
+  const breaksOn = useStore((s) => s.breaksOn);
+  const breakHours = useStore((s) => s.breakHours);
   const loadRegion = useDataStore((s) => s.loadRegion);
-  const { allDecorated, nearby, location, status, error, loading } = useWashroomData();
+  const {
+    nearby, location, status, error,
+  } = useWashroomData();
 
-  const closest = useMemo(
-    () => [...allDecorated].sort((a, b) => a.dist - b.dist)[0],
-    [allDecorated],
-  );
+  const firstName = (displayName || 'traveller').split(' ')[0];
 
-  // "Rated clean this week" — the design's phrasing. Only rated washrooms can
-  // appear, and unrated ones are absent rather than shown as zero.
-  const ratedClean = useMemo(
-    () => allDecorated.filter((w) => w.rated).sort((a, b) => b.avgRating - a.avgRating).slice(0, 3),
-    [allDecorated],
-  );
-
-  const cities = useMemo(() => CITIES.slice(0, 8), []);
-  const radiusLabel = formatDistance(radius, units);
+  // The hero shows the route being planned if there is one, else the last trip
+  // planned, else an invitation to plan one. Nothing here is invented: a trip
+  // card only appears once there is a real route behind it.
+  const trip = useMemo(() => {
+    if (tripFrom && tripTo && activeRoute) {
+      return {
+        title: `${tripFrom.label.split(',')[0]} → ${tripTo.label.split(',')[0]}`,
+        distanceM: activeRoute.distanceM,
+        durationS: activeRoute.durationS,
+        stops: (useStore.getState().tripVia ?? []).length,
+        live: true,
+      };
+    }
+    const last = trips[0];
+    if (last) {
+      return {
+        title: `${last.fromLabel?.split(',')[0]} → ${last.toLabel?.split(',')[0]}`,
+        distanceM: last.distanceM,
+        durationS: last.durationS,
+        stops: last.via?.length ?? 0,
+        live: false,
+      };
+    }
+    return null;
+  }, [tripFrom, tripTo, activeRoute, trips]);
 
   return (
     <div className="screen" style={{ background: t.bg }}>
       <div
-        className="scroll"
+        className="scroll enter"
         style={{
-          padding: '18px 18px 0', paddingTop: 'calc(18px + var(--safe-t))',
-          paddingBottom: 'var(--scroll-pad-b)', display: 'flex', flexDirection: 'column', gap: 18,
+          padding: '8px 20px 0', paddingTop: 'calc(8px + var(--safe-t))',
+          paddingBottom: 'var(--scroll-pad-b)', display: 'flex', flexDirection: 'column', gap: 20,
         }}
       >
-        <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12 }}>
-          <div style={{ minWidth: 0 }}>
-            <div style={{ fontSize: 13, color: t.sub }}>Good {greetingPart()}</div>
-            <div style={{ fontSize: 27, fontWeight: 600, letterSpacing: '-.04em', color: t.text, marginTop: 4, lineHeight: 1.1 }}>
-              Need a washroom?
-            </div>
-            <div style={{ fontSize: 12.5, color: t.sub, marginTop: 7, lineHeight: 1.45 }}>
-              Near {location.label} · within {radiusLabel}
-            </div>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <div style={{ display: 'flex', flexDirection: 'column' }}>
+            <span style={{ fontSize: 13, fontWeight: 600, color: t.sub }}>{greeting()}</span>
+            <span style={{ fontSize: 24, fontWeight: 800, letterSpacing: '-.02em', color: t.text }}>
+              {firstName}
+            </span>
           </div>
-          <div style={{ display: 'flex', gap: 8, flex: 'none' }}>
-            <button type="button" aria-label={dark ? 'Switch to light' : 'Switch to dark'} onClick={toggleDark} style={iconButton(t)}>
-              <span style={{ fontSize: 15, lineHeight: 1, color: t.text }}>{dark ? '☀' : '☾'}</span>
-            </button>
-            <button type="button" aria-label="Settings" onClick={() => navigate('/settings')} style={iconButton(t)}>
-              <IconGear color={t.text} />
-            </button>
-          </div>
+          <RoundButton onClick={() => navigate('/settings')} t={t} label="Settings">
+            <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke={t.text} strokeWidth="1.8">
+              <circle cx="12" cy="12" r="3" />
+              <path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M19.1 4.9L17 7M7 17l-2.1 2.1" />
+            </svg>
+          </RoundButton>
         </div>
 
         <DemoBanner t={t} />
+        {status === 'error' && (
+          <ErrorNote t={t} message={error} onRetry={() => loadRegion(location.lat, location.lng, { force: true })} />
+        )}
 
-        {status === 'error' && <ErrorNote t={t} message={error} onRetry={() => loadRegion(location.lat, location.lng, { force: true })} />}
-        {loading && <Loading t={t} label="Finding washrooms near you…" />}
+        {/* Next trip */}
+        <div style={{
+          borderRadius: 22, background: t.hero, padding: 20, display: 'flex',
+          flexDirection: 'column', gap: 16, position: 'relative', overflow: 'hidden',
+        }}
+        >
+          <div style={{
+            position: 'absolute', right: -40, top: -40, width: 160, height: 160,
+            borderRadius: '50%', background: t.accent, opacity: 0.35, filter: 'blur(6px)',
+          }}
+          />
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, position: 'relative' }}>
+            <span style={{ width: 8, height: 8, borderRadius: '50%', background: t.accent }} />
+            <span style={{
+              fontSize: 11, fontWeight: 700, letterSpacing: '.1em', textTransform: 'uppercase',
+              color: 'rgba(255,255,255,.65)',
+            }}
+            >
+              {trip?.live ? 'Next trip' : trip ? 'Last trip' : 'No trip planned'}
+            </span>
+          </div>
 
-        {status === 'ready' && (
-          <>
-            {closest ? (
+          <div style={{ position: 'relative', display: 'flex', flexDirection: 'column', gap: 4 }}>
+            <span style={{ fontSize: 23, fontWeight: 800, letterSpacing: '-.02em', color: '#fff' }}>
+              {trip ? trip.title : 'Where to next?'}
+            </span>
+            <span style={{ fontSize: 14, color: 'rgba(255,255,255,.6)' }}>
+              {trip ? 'Tap preview to drive it' : 'Plan a route to see it here'}
+            </span>
+          </div>
+
+          {trip && (
+            <div style={{
+              position: 'relative', display: 'flex', gap: 22, paddingTop: 4,
+              borderTop: '1px solid rgba(255,255,255,.12)',
+            }}
+            >
+              {[
+                [formatDuration(trip.durationS), 'Drive time'],
+                [formatDistance(trip.distanceM, units), 'Distance'],
+                [String(trip.stops), 'Via stops'],
+              ].map(([value, label]) => (
+                <div key={label} style={{ display: 'flex', flexDirection: 'column', gap: 2, paddingTop: 12 }}>
+                  <span style={{ fontSize: 19, fontWeight: 800, color: '#fff' }}>{value}</span>
+                  <span style={{ fontSize: 12, color: 'rgba(255,255,255,.55)' }}>{label}</span>
+                </div>
+              ))}
+            </div>
+          )}
+
+          <div style={{ position: 'relative', display: 'flex', gap: 10 }}>
+            <button
+              type="button"
+              onClick={() => navigate(trip?.live ? '/drive' : '/plan')}
+              style={{
+                flex: 1, minHeight: 48, border: 0, borderRadius: 14, background: t.accent,
+                color: t.onInk, fontSize: 15, fontWeight: 700, cursor: 'pointer',
+              }}
+            >
+              {trip?.live ? 'Preview drive' : 'Plan a route'}
+            </button>
+            {trip && (
               <button
                 type="button"
-                onClick={() => navigate(`/washroom/${closest.id}`)}
+                onClick={() => navigate('/plan')}
                 style={{
-                  textAlign: 'left', padding: 18, borderRadius: 22, border: `1px solid ${t.line}`,
-                  cursor: 'pointer', background: t.hero, color: t.text,
-                  display: 'flex', flexDirection: 'column', gap: 11,
+                  minHeight: 48, padding: '0 18px', borderRadius: 14,
+                  border: '1.5px solid rgba(255,255,255,.22)', background: 'transparent',
+                  color: '#fff', fontSize: 15, fontWeight: 600, cursor: 'pointer',
                 }}
               >
-                <div style={{ fontSize: 10.5, fontWeight: 600, letterSpacing: '.11em', textTransform: 'uppercase', color: t.sub }}>
-                  Closest to you
-                </div>
-                <div style={{ fontSize: 21, fontWeight: 600, letterSpacing: '-.03em', lineHeight: 1.2 }}>{closest.name}</div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 11, flexWrap: 'wrap' }}>
-                  <span style={{
-                    padding: '6px 11px', borderRadius: 10, fontSize: 12.5, fontWeight: 600,
-                    background: closest.rated ? closest.scoreBg : t.tagBg,
-                    color: closest.rated ? closest.scoreFg : t.sub,
-                  }}
-                  >
-                    {closest.rated ? `${closest.scoreText} / 5 clean` : 'Not rated yet'}
-                  </span>
-                  <span style={{ fontSize: 12.5, color: t.body }}>{closest.distLabel}</span>
-                </div>
-                <div style={{ fontSize: 12.5, color: t.sub, lineHeight: 1.45 }}>{closest.reviewLabel}</div>
+                Edit
               </button>
-            ) : (
-              <div style={{ padding: '20px 18px', borderRadius: 20, background: t.card, border: `1px dashed ${t.line2}` }}>
-                <div style={{ fontSize: 13.5, fontWeight: 600, color: t.text }}>Nothing mapped around here yet</div>
-                <div style={{ fontSize: 12, lineHeight: 1.55, color: t.sub, marginTop: 6 }}>
-                  Move the map somewhere else, or add the washroom you are standing next to.
-                </div>
-              </div>
             )}
+          </div>
+        </div>
 
-            <div style={{ display: 'flex', gap: 10 }}>
-              <button type="button" onClick={() => navigate('/map')} style={actionCard(t)}>
-                <div style={{ fontSize: 14, fontWeight: 600, color: t.text }}>Open the map</div>
-                <div style={{ fontSize: 11.5, color: t.sub, marginTop: 5, lineHeight: 1.4 }}>
-                  {nearby.length ? `${nearby.length} within ${radiusLabel}` : 'Anywhere in Canada'}
-                </div>
-              </button>
-              <button type="button" onClick={() => navigate('/add')} style={actionCard(t)}>
-                <div style={{ fontSize: 14, fontWeight: 600, color: t.text }}>Add a stop</div>
-                <div style={{ fontSize: 11.5, color: t.sub, marginTop: 5, lineHeight: 1.4 }}>Toilet, food, fuel or rest area</div>
-              </button>
-            </div>
-
-            <div style={{ display: 'flex', gap: 10 }}>
-              <button type="button" onClick={() => navigate('/plan')} style={actionCard(t)}>
-                <div style={{ fontSize: 14, fontWeight: 600, color: t.text }}>Plan a route</div>
-                <div style={{ fontSize: 11.5, color: t.sub, marginTop: 5, lineHeight: 1.4 }}>Real directions, drive preview</div>
-              </button>
-              <button type="button" onClick={() => navigate('/history')} style={actionCard(t)}>
-                <div style={{ fontSize: 14, fontWeight: 600, color: t.text }}>Trip history</div>
-                <div style={{ fontSize: 11.5, color: t.sub, marginTop: 5, lineHeight: 1.4 }}>
-                  {trips.length ? `${trips.length} planned` : 'Routes you’ve planned'}
-                </div>
-              </button>
-            </div>
-
-            <div>
-              <div style={{ fontSize: 15, fontWeight: 600, letterSpacing: '-.02em', color: t.text, marginBottom: 11 }}>Browse a city</div>
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-                {cities.map((c) => (
-                  <button
-                    key={c.name}
-                    type="button"
-                    onClick={() => navigate('/map', { state: { flyTo: c } })}
-                    style={{
-                      whiteSpace: 'nowrap', padding: '10px 14px', borderRadius: 12, fontSize: 12.5,
-                      fontWeight: 500, cursor: 'pointer', background: t.card, color: t.text,
-                      border: `1px solid ${t.line}`,
-                    }}
-                  >
-                    {c.name}
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 12 }}>
-              <div style={{ fontSize: 15, fontWeight: 600, letterSpacing: '-.02em', color: t.text }}>
-                {ratedClean.length ? 'Rated clean nearby' : 'Nothing rated yet'}
-              </div>
-              <button type="button" onClick={() => navigate('/list')} style={{ border: 0, background: 'transparent', cursor: 'pointer', fontSize: 12.5, fontWeight: 500, color: t.accent }}>See all</button>
-            </div>
-
-            {ratedClean.length === 0 ? (
-              <div style={{ padding: '20px 18px', borderRadius: 20, background: t.card, border: `1px dashed ${t.line2}`, textAlign: 'center' }}>
-                <div style={{ fontSize: 13.5, fontWeight: 600, color: t.text }}>No reviews yet</div>
-                <div style={{ fontSize: 12, lineHeight: 1.55, color: t.sub, marginTop: 6 }}>
-                  Ratings here come from real visits. Next time you use one of these washrooms,
-                  rate it — you’ll be the first, and everyone after you will see it.
-                </div>
-                <button
-                  type="button"
-                  onClick={() => navigate('/list')}
-                  style={{ marginTop: 13, height: 44, padding: '0 18px', borderRadius: 14, border: 0, background: t.accent, color: '#FFFFFF', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}
+        {/* Quick actions */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+          <span style={{ fontSize: 13, fontWeight: 700, color: t.sub }}>Quick actions</span>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+            {ACTIONS.map((a) => (
+              <button
+                key={a.label}
+                type="button"
+                onClick={() => navigate(a.path)}
+                style={{
+                  minHeight: 88, borderRadius: 18, border: `1px solid ${t.line}`, background: t.card,
+                  display: 'flex', flexDirection: 'column', alignItems: 'flex-start',
+                  justifyContent: 'space-between', padding: 14, cursor: 'pointer', textAlign: 'left',
+                }}
+              >
+                <span style={{
+                  width: 34, height: 34, borderRadius: 10, display: 'flex',
+                  alignItems: 'center', justifyContent: 'center',
+                  background: `color-mix(in oklab, ${t.accent} 14%, ${t.card})`,
+                }}
                 >
-                  Find one to rate
-                </button>
-              </div>
-            ) : (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-                {ratedClean.map((w) => (
-                  <button
-                    key={w.id}
-                    type="button"
-                    onClick={() => navigate(`/washroom/${w.id}`)}
-                    style={{ textAlign: 'left', padding: '14px 15px', borderRadius: 18, background: t.card, border: `1px solid ${t.line}`, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 13 }}
-                  >
-                    <ScoreBadge washroom={w} t={t} />
-                    <span style={{ flex: 1, display: 'block', minWidth: 0 }}>
-                      <span style={{ display: 'block', fontSize: 14, fontWeight: 600, letterSpacing: '-.02em', color: t.text, lineHeight: 1.3 }}>{w.name}</span>
-                      <span style={{ display: 'block', fontSize: 11.5, color: t.sub, marginTop: 4 }}>{w.metaLabel}</span>
-                    </span>
-                  </button>
-                ))}
-              </div>
-            )}
-          </>
+                  <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke={t.accent} strokeWidth="2">
+                    <path d={a.d} />
+                    {a.extra === 'circle' && <circle cx="12" cy="10" r="3" />}
+                    {a.extra === 'clock' && <circle cx="12" cy="12" r="9" />}
+                  </svg>
+                </span>
+                <span style={{ fontSize: 15, fontWeight: 700, color: t.text }}>{a.label}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {breaksOn && (
+          <div style={{
+            borderRadius: 18, border: `1.5px solid color-mix(in oklab, ${t.accent} 30%, ${t.card})`,
+            background: `color-mix(in oklab, ${t.accent} 8%, ${t.card})`, padding: 16,
+            display: 'flex', gap: 12, alignItems: 'flex-start',
+          }}
+          >
+            <span style={{
+              width: 32, height: 32, flex: 'none', borderRadius: '50%', background: t.accent,
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+            }}
+            >
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={t.onInk} strokeWidth="2.2">
+                <path d="M12 8v4l2.5 2" /><circle cx="12" cy="12" r="9" />
+              </svg>
+            </span>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+              <span style={{ fontSize: 15, fontWeight: 700, color: t.text }}>Break reminder is on</span>
+              <span style={{ fontSize: 13, lineHeight: 1.45, color: t.body }}>
+                We’ll suggest a stop every {breakHours} hours, matched to your facilities.
+              </span>
+            </div>
+          </div>
+        )}
+
+        {nearby.length > 0 && (
+          <button
+            type="button"
+            onClick={() => navigate('/stops')}
+            style={{
+              padding: '14px 16px', borderRadius: 16, background: t.card,
+              border: `1px solid ${t.line}`, cursor: 'pointer', textAlign: 'left',
+              display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10,
+            }}
+          >
+            <span style={{ fontSize: 14, fontWeight: 600, color: t.text }}>
+              {nearby.length} stop{nearby.length === 1 ? '' : 's'} near {location.label}
+            </span>
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={t.sub} strokeWidth="2"><path d="M9 5l7 7-7 7" /></svg>
+          </button>
         )}
       </div>
     </div>
   );
 }
 
-const iconButton = (t) => ({
-  width: 42, height: 42, flex: 'none', borderRadius: 14, border: `1px solid ${t.line}`,
-  background: t.card, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
-});
-
-const actionCard = (t) => ({
-  flex: 1, padding: '16px 15px', borderRadius: 18, border: `1px solid ${t.line}`,
-  background: t.card, cursor: 'pointer', textAlign: 'left',
-});
-
-function greetingPart() {
+function greeting() {
   const h = new Date().getHours();
-  if (h < 12) return 'morning';
-  if (h < 18) return 'afternoon';
-  return 'evening';
+  if (h < 12) return 'Good morning';
+  if (h < 18) return 'Good afternoon';
+  return 'Good evening';
 }

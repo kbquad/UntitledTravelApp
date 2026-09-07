@@ -11,8 +11,12 @@ const defaultFilters = {
 
 // The look the app ships with. Named so the initial state and the migration
 // that brings existing installs onto it cannot drift apart.
-export const DEFAULT_HUE = 258;
-export const DEFAULT_DARK = true;
+// The design's default accent is #0F6E63 — teal, which is hue 173 at 76%
+// saturation and 25% lightness — on the light theme.
+export const DEFAULT_HUE = 173;
+export const DEFAULT_SAT = 76;
+export const DEFAULT_LIGHT = 25;
+export const DEFAULT_DARK = false;
 
 // How long a fix counts as "where you are" rather than "where you last were".
 // The watcher in lib/geolocation.js re-stamps a standing-still fix well inside
@@ -39,7 +43,10 @@ export const useStore = create(
       displayName: '',      // optional; blank posts as "A local"
 
       hue: DEFAULT_HUE,
+      sat: DEFAULT_SAT,
+      light: DEFAULT_LIGHT,
       dark: DEFAULT_DARK,
+      bigText: false,
       units: 'Metric',
 
       // 'Exact' measures from the fix the browser gives; 'General' rounds it to
@@ -88,8 +95,15 @@ export const useStore = create(
       setDisplayName: (displayName) => set({ displayName }),
 
       setHue: (hue) => set({ hue }),
+      setSat: (sat) => set({ sat }),
+      setLight: (light) => set({ light }),
+      // What the colour wheel writes: angle and distance in one go.
+      setAccentHsl: ({ hue, sat, light }) => set((s) => ({
+        hue: hue ?? s.hue, sat: sat ?? s.sat, light: light ?? s.light,
+      })),
       toggleDark: () => set((s) => ({ dark: !s.dark })),
       setDark: (dark) => set({ dark }),
+      toggleBigText: () => set((s) => ({ bigText: !s.bigText })),
       setUnits: (units) => set({ units }),
       setLocationAccuracy: (locationAccuracy) => set({ locationAccuracy }),
       toggleNotify: () => set((s) => ({ notify: !s.notify })),
@@ -130,12 +144,15 @@ export const useStore = create(
     }),
     {
       name: 'loo-preferences',
-      version: 6,
+      version: 7,
       partialize: (s) => ({
         onboarded: s.onboarded,
         displayName: s.displayName,
         hue: s.hue,
+        sat: s.sat,
+        light: s.light,
         dark: s.dark,
+        bigText: s.bigText,
         units: s.units,
         locationAccuracy: s.locationAccuracy,
         notify: s.notify,
@@ -165,12 +182,22 @@ export const useStore = create(
       //
       // Only the two appearance keys are touched at v5. Saved washrooms,
       // display name, units, filters and everything else carry over untouched.
+      // v7 is the Roadside redesign. The accent used to be a hue alone; it is
+      // now hue + saturation + brightness, so there is no sensible way to
+      // carry the old value forward — everyone moves onto the design's teal.
+      // Light/dark is left exactly as it was: that one is a deliberate choice
+      // people make, unlike an accent nobody picked.
       migrate: (state, version) => {
         if (!state) return state;
         const { userLocation: _dropped, ...rest } = state;
         const withV5 = version >= 5 ? rest : { ...rest, hue: DEFAULT_HUE, dark: DEFAULT_DARK };
-        if (version >= 6) return withV5;
-        return { ...withV5, travelPreset: null, breaksOn: true, breakHours: 2, trips: [] };
+        const withV6 = version >= 6
+          ? withV5
+          : { ...withV5, travelPreset: null, breaksOn: true, breakHours: 2, trips: [] };
+        if (version >= 7) return withV6;
+        return {
+          ...withV6, hue: DEFAULT_HUE, sat: DEFAULT_SAT, light: DEFAULT_LIGHT, bigText: false,
+        };
       },
     },
   ),
