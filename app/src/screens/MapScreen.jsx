@@ -1,43 +1,41 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { MapContainer, TileLayer, Marker, Popup } from 'react-leaflet';
+import { MapContainer, TileLayer, Marker } from 'react-leaflet';
 import MapReady from '../components/MapReady';
 import { useStore } from '../store';
 import { useToastStore } from '../toastStore';
 import { useWashroomData, useCurrentLocation } from '../hooks/useWashroomData';
 import { useDataStore } from '../dataStore';
 import { requestLocation } from '../lib/geolocation';
-import { CITIES, CANADA_VIEW } from '../data/locations';
-import { distanceMetres } from '../utils/geo';
+import { CITIES, CANADA_VIEW, CATEGORIES, FEATURES } from '../data/locations';
+import { distanceMetres, formatDistance } from '../utils/geo';
 import { pinIcon, youAreHereIcon } from '../utils/mapIcons';
-import { IconSearch, IconFilter, IconPlus, IconTarget } from '../components/Icons';
-import { Chip } from '../components/ui';
+import { Pill, CategoryBadge, RoundButton } from '../components/ui';
 
-
+// The full map. Filtering by facility happens here rather than behind a
+// modal, because "a washroom with a changing table, near me" is the whole
+// question this screen exists to answer — and tapping a pin now says what
+// that stop actually has.
 export default function MapScreen({ t }) {
   const navigate = useNavigate();
   const routerLocation = useLocation();
   const flash = useToastStore((s) => s.flash);
   const dark = useStore((s) => s.dark);
   const saved = useStore((s) => s.saved);
+  const units = useStore((s) => s.units);
+  const categoryFilter = useStore((s) => s.categoryFilter);
+  const setCategoryFilter = useStore((s) => s.setCategoryFilter);
   const filters = useStore((s) => s.filters);
-  const minClean = useStore((s) => s.minClean);
+  const toggleFilter = useStore((s) => s.toggleFilter);
 
-  const { mapPool, sorted } = useWashroomData();
+  const { mapPool } = useWashroomData();
   const here = useCurrentLocation();
   const loadRegion = useDataStore((s) => s.loadRegion);
 
   const [map, setMap] = useState(null);
-  const [recentring, setRecentring] = useState(false);
-
-  // Follow mode: the map rides along with the user. On by default, so opening
-  // the map — or walking, or driving to another city — always ends up showing
-  // where you actually are rather than wherever it was last pointed.
-  //
-  // Panning or tapping a city turns it off, because a map that yanks itself
-  // back while you are reading it is unusable. The target button turns it back
-  // on, and its colour says which mode you are in.
+  const [selected, setSelected] = useState(null);
   const [following, setFollowing] = useState(true);
+  const [recentring, setRecentring] = useState(false);
   const onReady = useCallback((m) => setMap(m), []);
   const flownForState = useRef(false);
   const followedFrom = useRef(null);
@@ -47,31 +45,20 @@ export default function MapScreen({ t }) {
     flownForState.current = true;
     const flyTo = routerLocation.state?.flyTo;
     if (flyTo) {
-      setFollowing(false); // they asked for somewhere specific
+      setFollowing(false);
       map.flyTo([flyTo.lat, flyTo.lng], 13, { duration: 1 });
-      flash(`Looking around ${flyTo.name}…`);
     }
-  }, [map, routerLocation.state, flash]);
+  }, [map, routerLocation.state]);
 
-  // The position updates for as long as the app is open, so this fires on the
-  // first fix after a cold open — the map starts on the whole country and
-  // settles onto the user as soon as the browser answers — and again whenever
-  // they have genuinely moved.
   useEffect(() => {
     if (!map || !following || !here.fromDevice) return;
-
     const last = followedFrom.current;
     const moved = !last || distanceMetres(last.lat, last.lng, here.lat, here.lng) > 25;
     if (!moved) return;
-
     followedFrom.current = { lat: here.lat, lng: here.lng };
-    // A first fix is a jump to somewhere new; later ones are small steps and
-    // should glide rather than swoop.
     map.flyTo([here.lat, here.lng], last ? map.getZoom() : 15, { duration: last ? 0.6 : 1.2 });
   }, [map, following, here.fromDevice, here.lat, here.lng]);
 
-  // Dragging is the user taking the wheel. Programmatic moves are not: Leaflet
-  // reports those without originalEvent, which is how the two are told apart.
   useEffect(() => {
     if (!map) return undefined;
     const onDragged = () => setFollowing(false);
@@ -79,43 +66,31 @@ export default function MapScreen({ t }) {
     return () => { map.off('dragstart', onDragged); };
   }, [map]);
 
-  // Panning somewhere new fetches that region. Washrooms accumulate as you
-  // explore rather than being thrown away, so panning back is instant.
   useEffect(() => {
     if (!map) return undefined;
-    const onMoved = () => {
-      const c = map.getCenter();
-      loadRegion(c.lat, c.lng);
-    };
+    const onMoved = () => { const c = map.getCenter(); loadRegion(c.lat, c.lng); };
     map.on('moveend', onMoved);
     onMoved();
     return () => { map.off('moveend', onMoved); };
   }, [map, loadRegion]);
 
-  const activeFilterCount = Object.values(filters).filter(Boolean).length + (minClean ? 1 : 0);
-
-  // Take a fresh reading rather than flying to wherever we last saw them —
-  // "recentre on me" is exactly the moment a stale position is most obvious.
   const recentre = async () => {
     if (recentring) return;
     setRecentring(true);
     const fix = await requestLocation();
     setRecentring(false);
-
     const target = fix ?? here;
     followedFrom.current = { lat: target.lat, lng: target.lng };
     setFollowing(true);
     map?.flyTo([target.lat, target.lng], 15, { duration: 1 });
-    flash(fix
-      ? 'Following you again.'
-      : `Couldn’t get a fix — centred on ${here.label}.`);
+    if (!fix) flash(`Couldn’t get a fix — centred on ${here.label}.`);
   };
+
+  const activeFacilities = FEATURES.filter((f) => filters[f.key]);
 
   return (
     <div className="screen" style={{ background: t.mapWater }}>
       <MapContainer
-        // Opens where the user is. Without a fix it opens on the whole country
-        // rather than on some city they may be nowhere near.
         center={here.fromDevice ? [here.lat, here.lng] : [CANADA_VIEW.lat, CANADA_VIEW.lng]}
         zoom={here.fromDevice ? 14 : CANADA_VIEW.zoom}
         zoomControl={false}
@@ -125,9 +100,6 @@ export default function MapScreen({ t }) {
         <MapReady onReady={onReady} />
         <TileLayer
           key={dark ? 'dark' : 'light'}
-          // detectRetina is what makes {r} resolve to "@2x" — without it the
-          // placeholder collapses to nothing and a phone gets tiles at half
-          // the resolution its screen can show.
           detectRetina
           maxZoom={20}
           maxNativeZoom={20}
@@ -135,117 +107,175 @@ export default function MapScreen({ t }) {
             ? 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png'
             : 'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png'}
         />
-        {here.fromDevice && <Marker position={[here.lat, here.lng]} icon={youAreHereIcon(t.ink)} opacity={here.live ? 1 : 0.45} />}
+        {here.fromDevice && (
+          <Marker position={[here.lat, here.lng]} icon={youAreHereIcon(t.accent)} opacity={here.live ? 1 : 0.45} />
+        )}
         {mapPool.map((w) => (
           <Marker
             key={`${w.id}-${dark}-${saved.includes(w.id)}-${w.scoreText}`}
             position={[w.lat, w.lng]}
             icon={pinIcon(w, { saved: saved.includes(w.id), cardColor: t.card, unratedColor: t.sub })}
-            eventHandlers={{ click: () => navigate(`/washroom/${w.id}`) }}
-          >
-            <Popup>{w.name}</Popup>
-          </Marker>
+            eventHandlers={{ click: () => setSelected(w) }}
+          />
         ))}
       </MapContainer>
 
+      {/* Filters live over the map, so their effect on the pins is visible */}
       <div style={{
-        position: 'absolute', left: 0, right: 0, top: 0, padding: '14px 16px 18px', paddingTop: 'calc(14px + var(--safe-t))',
-        background: `linear-gradient(${t.bg} 0%, ${t.fadeOut} 100%)`, pointerEvents: 'none', zIndex: 1000,
+        position: 'absolute', left: 0, right: 0, top: 0, zIndex: 1000, pointerEvents: 'none',
+        padding: '14px 16px 18px', paddingTop: 'calc(14px + var(--safe-t))',
+        background: `linear-gradient(${t.bg} 0%, ${t.fadeOut} 100%)`,
       }}
       >
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, pointerEvents: 'auto' }}>
-          <div style={{ flex: 1, display: 'flex', alignItems: 'center', gap: 10, height: 46, padding: '0 15px', borderRadius: 14, background: t.card, border: `1px solid ${t.line}`, boxShadow: '0 6px 20px rgba(0,0,0,.1)' }}>
-            <IconSearch color={t.sub} />
-            <span style={{ fontSize: 13.5, color: t.sub }}>Search a place in Canada</span>
-          </div>
-          <button type="button" aria-label="Filters" onClick={() => navigate('/filters')} style={{ width: 46, height: 46, borderRadius: 14, background: t.ink, border: 0, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 6px 20px rgba(0,0,0,.2)', position: 'relative' }}>
-            <IconFilter />
-            {activeFilterCount > 0 && (
-              <span style={{ position: 'absolute', top: -3, right: -3, minWidth: 17, height: 17, padding: '0 4px', borderRadius: 9, background: t.accent, color: '#fff', fontSize: 10, fontWeight: 600, display: 'flex', alignItems: 'center', justifyContent: 'center', border: `2px solid ${t.bg}` }}>{activeFilterCount}</span>
-            )}
-          </button>
+          <RoundButton onClick={() => navigate(-1)} t={t} label="Back">
+            <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke={t.text} strokeWidth="2.2"><path d="M15 5l-7 7 7 7" /></svg>
+          </RoundButton>
+          <span style={{ flex: 1, fontSize: 17, fontWeight: 800, letterSpacing: '-.02em', color: t.text }}>
+            {mapPool.length} {mapPool.length === 1 ? 'stop' : 'stops'} here
+          </span>
         </div>
-        <div style={{ display: 'flex', gap: 8, marginTop: 11, overflowX: 'auto', pointerEvents: 'auto', paddingRight: 8 }}>
-          {CITIES.map((n) => (
-            <Chip
-              key={n.name}
-              label={n.name}
-              t={t}
-              style={{ boxShadow: '0 2px 8px rgba(0,0,0,.06)' }}
-              onClick={() => {
-                map?.flyTo([n.lat, n.lng], 13, { duration: 1 });
-                flash(`Looking around ${n.name}…`);
-              }}
-            />
+
+        <div style={{ display: 'flex', gap: 8, marginTop: 11, overflowX: 'auto', pointerEvents: 'auto' }}>
+          <Pill label="All" active={categoryFilter === 'all'} t={t} onClick={() => setCategoryFilter('all')} />
+          {CATEGORIES.map((c) => (
+            <Pill key={c.id} label={c.label} active={categoryFilter === c.id} t={t} onClick={() => setCategoryFilter(c.id)} />
+          ))}
+        </div>
+        <div style={{ display: 'flex', gap: 8, marginTop: 8, overflowX: 'auto', pointerEvents: 'auto' }}>
+          {FEATURES.map((f) => (
+            <Pill key={f.key} label={f.label} active={!!filters[f.key]} t={t} onClick={() => toggleFilter(f.key)} />
           ))}
         </div>
       </div>
 
-      <div style={{ position: 'absolute', right: 16, bottom: 'calc(204px + env(safe-area-inset-bottom, 0px))', display: 'flex', flexDirection: 'column', gap: 8, zIndex: 1000 }}>
-        <div style={{ borderRadius: 14, overflow: 'hidden', background: t.card, border: `1px solid ${t.line}`, boxShadow: '0 6px 18px rgba(0,0,0,.14)' }}>
-          <button type="button" aria-label="Zoom in" onClick={() => map?.zoomIn()} style={{ display: 'block', width: 44, height: 40, border: 0, borderBottom: `1px solid ${t.line}`, background: 'transparent', cursor: 'pointer', color: t.text, fontSize: 17, lineHeight: 1 }}>+</button>
-          <button type="button" aria-label="Zoom out" onClick={() => map?.zoomOut()} style={{ display: 'block', width: 44, height: 40, border: 0, background: 'transparent', cursor: 'pointer', color: t.text, fontSize: 17, lineHeight: 1 }}>−</button>
-        </div>
-        <button
-          type="button"
-          aria-label={following ? 'Following your location' : 'Recentre on my location'}
-          aria-pressed={following}
-          onClick={recentre}
-          style={{
-            width: 44, height: 44, borderRadius: 14, cursor: 'pointer',
-            background: following ? t.ink : t.card,
-            border: `1px solid ${following ? t.ink : t.line}`,
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
-            boxShadow: '0 6px 18px rgba(0,0,0,.14)',
-          }}
+      <div style={{
+        position: 'absolute', right: 16, bottom: selected ? 260 : 150, zIndex: 1000,
+        display: 'flex', flexDirection: 'column', gap: 8,
+      }}
+      >
+        <div style={{
+          borderRadius: 14, overflow: 'hidden', background: t.card,
+          border: `1px solid ${t.line}`, boxShadow: '0 6px 18px rgba(0,0,0,.14)',
+        }}
         >
-          <IconTarget color={recentring ? t.sub : (following ? t.onInk : t.ink)} />
-        </button>
-        <button type="button" aria-label="Add a stop" onClick={() => navigate('/add')} style={{ width: 44, height: 44, borderRadius: 14, background: t.accent, border: 0, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 6px 18px rgba(0,0,0,.2)' }}>
-          <IconPlus />
-        </button>
+          <button type="button" aria-label="Zoom in" onClick={() => map?.zoomIn()} style={zoomBtn(t, true)}>+</button>
+          <button type="button" aria-label="Zoom out" onClick={() => map?.zoomOut()} style={zoomBtn(t, false)}>−</button>
+        </div>
+        <RoundButton
+          onClick={recentre}
+          t={t}
+          label={following ? 'Following your location' : 'Recentre on my location'}
+          style={{ background: following ? t.accent : t.card, border: `1px solid ${following ? t.accent : t.line2}` }}
+        >
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={following ? t.onInk : t.text} strokeWidth="1.9">
+            <circle cx="12" cy="12" r="3.4" /><path d="M12 2v3M12 19v3M2 12h3M19 12h3" />
+          </svg>
+        </RoundButton>
+        <RoundButton onClick={() => navigate('/add')} t={t} label="Add a stop" style={{ background: t.accent, border: 0 }}>
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={t.onInk} strokeWidth="2.6" strokeLinecap="round"><path d="M12 5v14M5 12h14" /></svg>
+        </RoundButton>
       </div>
 
-      <div style={{ position: 'absolute', left: 0, right: 0, bottom: 0, borderRadius: '22px 22px 0 0', background: t.card, borderTop: `1px solid ${t.line}`, boxShadow: '0 -12px 34px rgba(0,0,0,.16)', padding: '9px 0 16px', paddingBottom: 'var(--scroll-pad-b)', zIndex: 1000 }}>
-        <button type="button" onClick={() => navigate('/list')} style={{ display: 'block', width: '100%', border: 0, background: 'transparent', padding: '0 0 6px', cursor: 'pointer' }}>
-          <div style={{ width: 42, height: 4, borderRadius: 2, background: t.line2, margin: '0 auto' }} />
-        </button>
-        <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', padding: '4px 18px 10px' }}>
-          <div style={{ fontSize: 15.5, fontWeight: 600, letterSpacing: '-.02em', color: t.text }}>
-            {mapPool.length} stop{mapPool.length === 1 ? '' : 's'} around here
-          </div>
-          <button type="button" onClick={() => navigate('/list')} style={{ border: 0, background: 'transparent', cursor: 'pointer', fontSize: 12, fontWeight: 500, color: t.ink }}>See all</button>
-        </div>
-        <div style={{ display: 'flex', gap: 12, padding: '0 18px 6px', overflowX: 'auto' }}>
-          {(sorted.length ? sorted : mapPool).slice(0, 4).map((w) => (
-            <button
-              key={w.id}
-              type="button"
-              onClick={() => navigate(`/washroom/${w.id}`)}
-              style={{ flex: 'none', width: 212, textAlign: 'left', padding: '13px 14px', borderRadius: 16, background: t.bg, border: `1px solid ${t.line}`, cursor: 'pointer', display: 'flex', flexDirection: 'column', gap: 7 }}
-            >
-              <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
-                <span style={{
-                  padding: '3px 8px', borderRadius: 8, fontSize: 11, fontWeight: 600,
-                  background: w.rated ? w.scoreBg : t.tagBg, color: w.rated ? w.scoreFg : t.sub,
-                }}
-                >
-                  {w.rated ? w.scoreText : 'New'}
-                </span>
-                <span style={{ fontSize: 11, color: t.sub }}>{w.distLabel}</span>
+      {/* Tapping a pin says what that stop actually has */}
+      <div style={{
+        position: 'absolute', left: 0, right: 0, bottom: 0, zIndex: 1000,
+        borderRadius: '22px 22px 0 0', background: t.card, borderTop: `1px solid ${t.line}`,
+        boxShadow: '0 -12px 34px rgba(0,0,0,.16)', padding: '12px 20px 18px',
+        paddingBottom: 'calc(18px + env(safe-area-inset-bottom, 0px))',
+        animation: 'looRise .22s ease',
+      }}
+      >
+        <div style={{ width: 42, height: 4, borderRadius: 2, background: t.line2, margin: '0 auto 12px' }} />
+
+        {selected ? (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 11 }}>
+            <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12 }}>
+              <div style={{ minWidth: 0 }}>
+                <div style={{ fontSize: 17, fontWeight: 700, letterSpacing: '-.01em', color: t.text }}>{selected.name}</div>
+                <div style={{ fontSize: 13, color: t.body, marginTop: 3 }}>
+                  {selected.neighbourhood} · {formatDistance(selected.dist, units)}
+                  {selected.rated ? ` · ${selected.scoreText}/5` : ' · New'}
+                </div>
               </div>
-              <div style={{ fontSize: 13.5, fontWeight: 600, letterSpacing: '-.01em', color: t.text, lineHeight: 1.3 }}>{w.name}</div>
-              <div style={{ fontSize: 11, color: t.sub, lineHeight: 1.4 }}>{w.reviewLabel}</div>
-            </button>
-          ))}
-        </div>
-        <div style={{ padding: '8px 18px 0', fontSize: 9.5, color: t.sub, opacity: 0.75 }}>
-          Map data ©{' '}
-          <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noreferrer" style={{ color: 'inherit', textDecoration: 'underline' }}>OpenStreetMap</a>
-          {' '}contributors · tiles ©{' '}
-          <a href="https://carto.com/attributions" target="_blank" rel="noreferrer" style={{ color: 'inherit', textDecoration: 'underline' }}>CARTO</a>
-        </div>
+              <CategoryBadge category={selected.category} label={selected.categoryLabel} t={t} />
+            </div>
+
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+              {selected.facilities.map((f) => (
+                <span
+                  key={f.key}
+                  style={{
+                    display: 'flex', alignItems: 'center', gap: 5, padding: '5px 10px',
+                    borderRadius: 8, fontSize: 12, fontWeight: 600,
+                    background: f.has ? `color-mix(in oklab, ${t.accent} 12%, ${t.card})` : t.chip,
+                    color: f.has ? t.text : t.faint,
+                  }}
+                >
+                  <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke={f.has ? t.accent : t.faint} strokeWidth="3.4" strokeLinecap="round">
+                    {f.has ? <path d="M5 13l4 4 10-10" /> : <path d="M6 6l12 12M18 6L6 18" />}
+                  </svg>
+                  {f.short}
+                </span>
+              ))}
+            </div>
+
+            <div style={{ display: 'flex', gap: 10 }}>
+              <button
+                type="button"
+                onClick={() => navigate(`/washroom/${selected.id}`)}
+                style={{
+                  flex: 1, minHeight: 46, borderRadius: 14, border: 0, background: t.accent,
+                  color: t.onInk, fontSize: 14.5, fontWeight: 700, cursor: 'pointer',
+                }}
+              >
+                Open
+              </button>
+              <button
+                type="button"
+                onClick={() => setSelected(null)}
+                style={{
+                  minHeight: 46, padding: '0 18px', borderRadius: 14,
+                  border: `1.5px solid ${t.line2}`, background: t.card, color: t.text,
+                  fontSize: 14.5, fontWeight: 600, cursor: 'pointer',
+                }}
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        ) : (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+            <div style={{ fontSize: 13.5, color: t.body }}>
+              {activeFacilities.length === 0
+                ? 'Tap a pin to see what it has, or filter by facility above.'
+                : `Showing stops with ${activeFacilities.map((f) => f.label.toLowerCase()).join(', ')}.`}
+            </div>
+            <div style={{ display: 'flex', gap: 8, overflowX: 'auto' }}>
+              {CITIES.slice(0, 8).map((c) => (
+                <Pill
+                  key={c.name}
+                  label={c.name}
+                  t={t}
+                  onClick={() => { setFollowing(false); map?.flyTo([c.lat, c.lng], 13, { duration: 1 }); }}
+                />
+              ))}
+            </div>
+            <div style={{ fontSize: 9.5, color: t.sub, opacity: 0.75 }}>
+              Map data ©{' '}
+              <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noreferrer" style={{ color: 'inherit', textDecoration: 'underline' }}>OpenStreetMap</a>
+              {' '}contributors · tiles ©{' '}
+              <a href="https://carto.com/attributions" target="_blank" rel="noreferrer" style={{ color: 'inherit', textDecoration: 'underline' }}>CARTO</a>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );
 }
+
+const zoomBtn = (t, top) => ({
+  display: 'block', width: 44, height: 40, border: 0,
+  borderBottom: top ? `1px solid ${t.line}` : 0,
+  background: 'transparent', cursor: 'pointer', color: t.text, fontSize: 17, lineHeight: 1,
+});

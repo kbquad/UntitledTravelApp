@@ -55,7 +55,10 @@ export default function RouteScreen({ t }) {
   }, [ready, tripFrom, tripTo, tripVia]);
 
   const startDrive = () => {
-    if (!ready || !activeRoute) { flash('Add a starting point and destination first.'); return; }
+    if (!ready) { flash('Add a starting point and destination first.'); return; }
+    // Saying "add a destination" while the router is mid-flight sends people
+    // looking at fields they have already filled in.
+    if (!activeRoute) { flash('Still working out the route — one moment.'); return; }
     addTrip({
       fromLabel: tripFrom.label,
       toLabel: tripTo.label,
@@ -241,8 +244,8 @@ export default function RouteScreen({ t }) {
           />
         </div>
 
-        <PrimaryButton t={t} onClick={startDrive} disabled={!ready || !activeRoute}>
-          Preview the drive
+        <PrimaryButton t={t} onClick={startDrive} disabled={!ready || !activeRoute || loading}>
+          {ready && loading ? 'Routing…' : 'Preview the drive'}
         </PrimaryButton>
       </div>
     </div>

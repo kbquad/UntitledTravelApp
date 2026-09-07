@@ -1,4 +1,6 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import {
+  lazy, Suspense, useEffect, useMemo, useRef, useState,
+} from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useStore } from '../store';
 import { useDataStore } from '../dataStore';
@@ -9,6 +11,9 @@ import {
 import { formatDistance, formatDuration } from '../utils/geo';
 import { decorateWashroom } from '../utils/decorate';
 import { RoundButton, PrimaryButton } from '../components/ui';
+// three.js is most of a megabyte; nobody should download it to look at a list
+// of washrooms. It arrives when the drive preview does.
+const DriveScene3D = lazy(() => import('../components/DriveScene3D'));
 
 // How close a known stop has to be to the route line to count as "along the
 // way" rather than a detour worth mentioning separately.
@@ -31,6 +36,7 @@ export default function DriveScreen({ t }) {
 
   const [playing, setPlaying] = useState(false);
   const [progress, setProgress] = useState(0);
+  const [sceneStatus, setSceneStatus] = useState(null);
   const arrivedRef = useRef(false);
 
   const path = activeRoute?.path ?? null;
@@ -108,33 +114,30 @@ export default function DriveScreen({ t }) {
 
   return (
     <div className="screen enter" style={{ background: t.bg }}>
-      {/* The road ahead */}
+      {/* The road ahead, in 3D: the real routed line on real ground. */}
       <div style={{ position: 'relative', height: 296, flex: 'none', overflow: 'hidden', background: t.scene }}>
-        <div style={{
-          position: 'absolute', top: 34, left: '50%', transform: 'translateX(-50%)',
-          width: 78, height: 78, borderRadius: '50%', background: t.sun, opacity: 0.85,
-        }}
-        />
-        <div style={{
-          position: 'absolute', bottom: 0, left: 0, right: 0, height: '54%', background: t.road,
-          clipPath: 'polygon(30% 0, 70% 0, 142% 100%, -42% 100%)',
-        }}
-        />
-        <div style={{
-          position: 'absolute', bottom: 0, left: '50%', transform: 'translateX(-50%)',
-          width: 8, height: '54%',
-          background: `repeating-linear-gradient(180deg, ${t.dash} 0 34px, transparent 34px 68px)`,
-          backgroundSize: '8px 68px', opacity: 0.95,
-          animation: playing ? 'dash .9s linear infinite' : 'none',
-        }}
-        />
-        <div style={{
-          position: 'absolute', bottom: 0, left: 0, right: 0, height: '54%',
-          background: 'linear-gradient(transparent 40%, rgba(0,0,0,.18))',
-        }}
-        />
-        <div style={{ position: 'absolute', left: 16, bottom: '64%', width: 5, height: 64, background: t.faint, borderRadius: 2 }} />
-        <div style={{ position: 'absolute', right: 16, bottom: '64%', width: 5, height: 64, background: t.faint, borderRadius: 2 }} />
+        <Suspense fallback={<div style={{ position: 'absolute', inset: 0, background: t.scene }} />}>
+          <DriveScene3D path={path} progress={progress} stops={routeStops} t={t} onStatus={setSceneStatus} />
+        </Suspense>
+
+        {sceneStatus?.source === 'flat' && (
+          <span style={{
+            position: 'absolute', left: 16, bottom: 62, fontSize: 10.5, fontWeight: 600,
+            letterSpacing: '.04em', color: '#fff', opacity: 0.75, textShadow: '0 1px 3px rgba(0,0,0,.6)',
+          }}
+          >
+            Flat ground — elevation data unavailable
+          </span>
+        )}
+        {sceneStatus?.source === 'points' && (
+          <span style={{
+            position: 'absolute', left: 16, bottom: 62, fontSize: 10.5, fontWeight: 600,
+            letterSpacing: '.04em', color: '#fff', opacity: 0.75, textShadow: '0 1px 3px rgba(0,0,0,.6)',
+          }}
+          >
+            Low-detail terrain — elevation tiles unavailable
+          </span>
+        )}
 
         <div style={{
           position: 'absolute', top: 'calc(14px + var(--safe-t))', left: 16, right: 16,
