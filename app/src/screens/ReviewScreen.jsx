@@ -5,8 +5,7 @@ import { useDataStore } from '../dataStore';
 import { useToastStore } from '../toastStore';
 import { useWashroom, useReviews } from '../hooks/useWashroomData';
 import { REVIEW_TAGS } from '../data/locations';
-import { IconBack } from '../components/Icons';
-import { Chip } from '../components/ui';
+import { Pill, ScreenHeader, PrimaryButton } from '../components/ui';
 import { ProtectedNote } from '../components/ProtectedNote';
 import { Loading } from '../components/Status';
 
@@ -32,7 +31,6 @@ export default function ReviewScreen({ t }) {
   const [saving, setSaving] = useState(false);
   const [loaded, setLoaded] = useState(false);
 
-  // Editing an existing review starts from what you wrote last time.
   useEffect(() => {
     if (loading || loaded) return;
     if (mine) {
@@ -58,7 +56,7 @@ export default function ReviewScreen({ t }) {
       if (!anon && name.trim()) setDisplayName(name.trim());
       await submitReview(id, { rating, body, authorName });
       navigate(`/washroom/${id}`, { replace: true });
-      flash(mine ? 'Review updated. Thanks!' : 'Thanks — your review is live for everyone.');
+      flash(mine ? 'Review updated. Thanks!' : 'Review posted — thanks!');
     } catch (e) {
       setSaving(false);
       flash(e?.message ?? 'Couldn’t post that review. Try again.');
@@ -67,20 +65,17 @@ export default function ReviewScreen({ t }) {
 
   return (
     <div className="screen" style={{ background: t.bg }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '16px 18px 10px', paddingTop: 'calc(16px + var(--safe-t))' }}>
-        <button type="button" aria-label="Back" onClick={() => navigate(-1)} style={{ width: 38, height: 38, borderRadius: 12, background: t.card, border: `1px solid ${t.line}`, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-          <IconBack color={t.text} />
-        </button>
-        <div style={{ fontSize: 16, fontWeight: 600, letterSpacing: '-.02em', color: t.text }}>
-          {mine ? 'Edit your review' : 'Rate this washroom'}
-        </div>
-      </div>
-      <div className="scroll" style={{ padding: '8px 18px 24px', display: 'flex', flexDirection: 'column', gap: 16 }}>
-        <div style={{ fontSize: 13, color: t.sub }}>{cur.name}</div>
+      <ScreenHeader title="Rate this stop" onBack={() => navigate(-1)} t={t} />
 
-        <div style={{ padding: '20px 16px', borderRadius: 20, background: t.card, border: `1px solid ${t.line}`, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 12 }}>
-          <div style={{ fontSize: 12.5, fontWeight: 500, color: t.body }}>How clean was it?</div>
-          <div style={{ display: 'flex', gap: 10 }}>
+      <div
+        className="scroll enter"
+        style={{ padding: '4px 20px 30px', display: 'flex', flexDirection: 'column', gap: 22 }}
+      >
+        <span style={{ fontSize: 14, color: t.body }}>{cur.name}</span>
+
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+          <span style={{ fontSize: 13, fontWeight: 700, color: t.text }}>Overall</span>
+          <div style={{ display: 'flex', gap: 8 }}>
             {[1, 2, 3, 4, 5].map((n) => (
               <button
                 key={n}
@@ -88,78 +83,73 @@ export default function ReviewScreen({ t }) {
                 aria-label={`${n} star${n === 1 ? '' : 's'}`}
                 onClick={() => setRating(n)}
                 style={{
-                  width: 46, height: 46, borderRadius: 14, cursor: 'pointer', fontSize: 20, lineHeight: 1,
-                  display: 'flex', alignItems: 'center', justifyContent: 'center',
-                  border: `1px solid ${n <= rating ? t.accent : t.line2}`,
-                  background: n <= rating ? t.tagBg : t.bg,
-                  color: n <= rating ? t.accent : t.line2,
+                  width: 48, height: 48, borderRadius: 12, border: 0, background: 'transparent',
+                  cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  padding: 0,
                 }}
               >
-                ★
+                <svg width="24" height="24" viewBox="0 0 24 24" fill={n <= rating ? t.accent : t.line3}>
+                  <path d="M12 2l2.9 6.2 6.6.9-4.8 4.6 1.2 6.6L12 17.2 6.1 20.3l1.2-6.6L2.5 9.1l6.6-.9Z" />
+                </svg>
               </button>
             ))}
           </div>
-          <div style={{ fontSize: 13, fontWeight: 600, color: rating ? t.accent : t.sub, minHeight: 19 }}>{WORDS[rating] || 'Tap a star'}</div>
+          <span style={{ fontSize: 13, fontWeight: 700, color: rating ? t.accent : t.sub, minHeight: 19 }}>
+            {WORDS[rating] || 'Tap a star'}
+          </span>
         </div>
 
-        <div>
-          <div style={{ fontSize: 12, fontWeight: 600, color: t.text, marginBottom: 9 }}>What stood out? (optional)</div>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+          <span style={{ fontSize: 13, fontWeight: 700, color: t.text }}>What stood out?</span>
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
             {REVIEW_TAGS.map((tag) => (
-              <Chip key={tag} label={tag} active={pickedTags.includes(tag)} t={t} onClick={() => toggleTag(tag)} />
+              <Pill key={tag} label={tag} active={pickedTags.includes(tag)} t={t} onClick={() => toggleTag(tag)} />
             ))}
           </div>
         </div>
 
-        <div>
-          <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', marginBottom: 9 }}>
-            <span style={{ fontSize: 12, fontWeight: 600, color: t.text }}>Tell people what it was like</span>
-            <span style={{ fontSize: 10.5, color: t.sub }}>{text.length} / 600</span>
-          </div>
+        <label style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+          <span style={{ fontSize: 13, fontWeight: 700, color: t.text }}>Tell other travellers</span>
           <textarea
             value={text}
             onChange={(e) => setText(e.target.value.slice(0, 600))}
-            placeholder="Stalls were spotless and there was a queue of two. Attendant came through while I was there."
-            style={{ width: '100%', minHeight: 132, padding: 14, borderRadius: 16, border: `1px solid ${t.line2}`, background: t.card, fontSize: 12.5, lineHeight: 1.55, color: t.text, resize: 'none', outline: 'none' }}
+            placeholder="Clean, well lit, easy to park a van outside…"
+            style={{
+              minHeight: 120, borderRadius: 14, border: `1.5px solid ${t.line2}`, background: t.card,
+              padding: 14, fontSize: 15, lineHeight: 1.5, color: t.text, outline: 'none',
+              resize: 'none', fontWeight: 500,
+            }}
           />
-        </div>
+        </label>
 
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-          <label style={{ display: 'flex', alignItems: 'center', gap: 11, padding: '13px 15px', borderRadius: 14, background: t.tagBg, cursor: 'pointer' }}>
-            <input type="checkbox" checked={anon} onChange={() => setAnon((a) => !a)} style={{ width: 17, height: 17, accentColor: t.accent }} />
-            <span style={{ fontSize: 12, color: t.body }}>Post as “A local”</span>
-          </label>
-          {!anon && (
-            <input
-              value={name}
-              onChange={(e) => setName(e.target.value.slice(0, 40))}
-              placeholder="Name to show, e.g. Mira K."
-              style={{ height: 46, padding: '0 14px', borderRadius: 14, border: `1px solid ${t.line2}`, background: t.card, fontSize: 13, color: t.text, outline: 'none' }}
-            />
-          )}
-        </div>
-
-        <button
-          type="button"
-          onClick={submit}
-          disabled={rating === 0 || saving}
-          style={{
-            height: 50, borderRadius: 15, border: 0,
-            background: rating === 0 ? t.trackBg : t.accent,
-            color: rating === 0 ? t.sub : '#FFFFFF',
-            fontSize: 13.5, fontWeight: 600,
-            cursor: rating === 0 || saving ? 'not-allowed' : 'pointer',
-            opacity: saving ? 0.7 : 1,
-          }}
+        <label style={{
+          display: 'flex', alignItems: 'center', gap: 11, padding: '13px 15px',
+          borderRadius: 14, background: t.chip, cursor: 'pointer',
+        }}
         >
-          {saving ? 'Posting…'
-            : rating === 0 ? 'Pick a rating to post'
-              : mine ? 'Update review' : 'Post review'}
-        </button>
+          <input
+            type="checkbox"
+            checked={anon}
+            onChange={() => setAnon((a) => !a)}
+            style={{ width: 17, height: 17, accentColor: t.accent }}
+          />
+          <span style={{ fontSize: 13.5, color: t.body }}>Post as “A local”</span>
+        </label>
+        {!anon && (
+          <input
+            value={name}
+            onChange={(e) => setName(e.target.value.slice(0, 40))}
+            placeholder="Name to show, e.g. Mira K."
+            style={{
+              minHeight: 52, borderRadius: 14, border: `1.5px solid ${t.line2}`, background: t.card,
+              padding: '0 16px', fontSize: 15, color: t.text, outline: 'none',
+            }}
+          />
+        )}
 
-        <div style={{ fontSize: 11, lineHeight: 1.55, color: t.sub, textAlign: 'center' }}>
-          Your review is public and helps the next person. You can edit it later.
-        </div>
+        <PrimaryButton t={t} onClick={submit} disabled={rating === 0 || saving}>
+          {saving ? 'Posting…' : rating === 0 ? 'Pick a rating to post' : mine ? 'Update review' : 'Post review'}
+        </PrimaryButton>
 
         <ProtectedNote t={t} style={{ marginTop: -6 }} />
       </div>
