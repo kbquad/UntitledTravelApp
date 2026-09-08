@@ -47,6 +47,9 @@ export const useStore = create(
       light: DEFAULT_LIGHT,
       dark: DEFAULT_DARK,
       bigText: false,
+      // The map opens in 3D; the flat map stays one tap away, and is the
+      // automatic fallback when WebGL or the terrain tiles are unavailable.
+      map3d: true,
       units: 'Metric',
 
       // 'Exact' measures from the fix the browser gives; 'General' rounds it to
@@ -104,6 +107,7 @@ export const useStore = create(
       toggleDark: () => set((s) => ({ dark: !s.dark })),
       setDark: (dark) => set({ dark }),
       toggleBigText: () => set((s) => ({ bigText: !s.bigText })),
+      setMap3d: (map3d) => set({ map3d }),
       setUnits: (units) => set({ units }),
       setLocationAccuracy: (locationAccuracy) => set({ locationAccuracy }),
       toggleNotify: () => set((s) => ({ notify: !s.notify })),
@@ -153,6 +157,7 @@ export const useStore = create(
         light: s.light,
         dark: s.dark,
         bigText: s.bigText,
+        map3d: s.map3d,
         units: s.units,
         locationAccuracy: s.locationAccuracy,
         notify: s.notify,

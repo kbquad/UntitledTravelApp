@@ -1,8 +1,11 @@
-import { useCallback, useEffect, useState } from 'react';
+import {
+  lazy, Suspense, useCallback, useEffect, useMemo, useState,
+} from 'react';
 import { useNavigate } from 'react-router-dom';
 import { MapContainer, Marker } from 'react-leaflet';
 import MapReady from '../components/MapReady';
 import BaseTiles from '../components/BaseTiles';
+import { MAP3D_CREDIT } from '../lib/mosaic';
 import { useStore } from '../store';
 import { useWashroomData, useCurrentLocation } from '../hooks/useWashroomData';
 import { useDataStore } from '../dataStore';
@@ -11,6 +14,8 @@ import { formatDistance } from '../utils/geo';
 import { pinIcon, youAreHereIcon } from '../utils/mapIcons';
 import { Pill, CategoryBadge } from '../components/ui';
 import { Loading, ErrorNote } from '../components/Status';
+
+const MapScene3D = lazy(() => import('../components/MapScene3D'));
 
 // The design's Stops screen: a map across the top, two rows of filters, then
 // the list. The map is the real one rather than the mock's placeholder, at the
@@ -23,6 +28,7 @@ export default function StopsScreen({ t }) {
   const setCategoryFilter = useStore((s) => s.setCategoryFilter);
   const filters = useStore((s) => s.filters);
   const toggleFilter = useStore((s) => s.toggleFilter);
+  const map3d = useStore((s) => s.map3d);
   const units = useStore((s) => s.units);
   const radius = useStore((s) => s.radius);
   const setRadius = useStore((s) => s.setRadius);
@@ -39,7 +45,18 @@ export default function StopsScreen({ t }) {
   const [tileTrouble, setTileTrouble] = useState(false);
   const [credit, setCredit] = useState('');
   const [moreFilters, setMoreFilters] = useState(false);
+  const [threeDFailed, setThreeDFailed] = useState(false);
   const onReady = useCallback((m) => setMap(m), []);
+
+  // The same 3D view as the full map, drifting slowly rather than accepting
+  // gestures: this is a header, and the list below it is what scrolls.
+  const show3d = map3d && !threeDFailed;
+
+  const centre = useMemo(() => ({ lat: here.lat, lng: here.lng }), [here.lat, here.lng]);
+  const meDot = useMemo(
+    () => (here.fromDevice ? { lat: here.lat, lng: here.lng } : null),
+    [here.fromDevice, here.lat, here.lng],
+  );
 
   useEffect(() => {
     if (!map) return undefined;
@@ -48,6 +65,12 @@ export default function StopsScreen({ t }) {
     onMoved();
     return () => { map.off('moveend', onMoved); };
   }, [map, loadRegion]);
+
+  // With no Leaflet instance to listen to, the 3D header asks for its region
+  // directly.
+  useEffect(() => {
+    if (show3d) loadRegion(here.lat, here.lng);
+  }, [show3d, here.lat, here.lng, loadRegion]);
 
   useEffect(() => {
     if (map && here.fromDevice) map.setView([here.lat, here.lng], 14, { animate: false });
@@ -62,31 +85,48 @@ export default function StopsScreen({ t }) {
         position: 'relative', height: 250, flex: 'none', background: t.mapWater, overflow: 'hidden',
       }}
       >
-        <MapContainer
-          center={here.fromDevice ? [here.lat, here.lng] : [CANADA_VIEW.lat, CANADA_VIEW.lng]}
-          zoom={here.fromDevice ? 14 : CANADA_VIEW.zoom}
-          zoomControl={false}
-          attributionControl={false}
-          style={{ position: 'absolute', inset: 0 }}
-        >
-          <MapReady onReady={onReady} />
-          <BaseTiles
-            dark={dark}
-            onTrouble={() => setTileTrouble(true)}
-            onProvider={(p) => setCredit(p.attribution)}
+        {show3d ? (
+          <Suspense fallback={null}>
+          <MapScene3D
+            centre={centre}
+            spanM={6000}
+            stops={mapPool.slice(0, 60)}
+            me={meDot}
+            interactive={false}
+            pinScale={2.4}
+            onStatus={(s) => {
+              if (!s.ok || (!s.terrain && !s.imagery)) { setThreeDFailed(true); setTileTrouble(true); }
+            }}
+            t={t}
           />
-          {here.fromDevice && (
-            <Marker position={[here.lat, here.lng]} icon={youAreHereIcon(t.accent)} opacity={here.live ? 1 : 0.45} />
-          )}
-          {mapPool.slice(0, 60).map((w) => (
-            <Marker
-              key={`${w.id}-${dark}-${saved.includes(w.id)}-${w.scoreText}`}
-              position={[w.lat, w.lng]}
-              icon={pinIcon(w, { saved: saved.includes(w.id), cardColor: t.card, unratedColor: t.sub })}
-              eventHandlers={{ click: () => navigate(`/washroom/${w.id}`) }}
+          </Suspense>
+        ) : (
+          <MapContainer
+            center={here.fromDevice ? [here.lat, here.lng] : [CANADA_VIEW.lat, CANADA_VIEW.lng]}
+            zoom={here.fromDevice ? 14 : CANADA_VIEW.zoom}
+            zoomControl={false}
+            attributionControl={false}
+            style={{ position: 'absolute', inset: 0 }}
+          >
+            <MapReady onReady={onReady} />
+            <BaseTiles
+              dark={dark}
+              onTrouble={() => setTileTrouble(true)}
+              onProvider={(p) => setCredit(p.attribution)}
             />
-          ))}
-        </MapContainer>
+            {here.fromDevice && (
+              <Marker position={[here.lat, here.lng]} icon={youAreHereIcon(t.accent)} opacity={here.live ? 1 : 0.45} />
+            )}
+            {mapPool.slice(0, 60).map((w) => (
+              <Marker
+                key={`${w.id}-${dark}-${saved.includes(w.id)}-${w.scoreText}`}
+                position={[w.lat, w.lng]}
+                icon={pinIcon(w, { saved: saved.includes(w.id), cardColor: t.card, unratedColor: t.sub })}
+                eventHandlers={{ click: () => navigate(`/washroom/${w.id}`) }}
+              />
+            ))}
+          </MapContainer>
+        )}
 
         <div style={{
           position: 'absolute', top: 'calc(14px + var(--safe-t))', left: 16, right: 16,
@@ -322,7 +362,7 @@ export default function StopsScreen({ t }) {
 
         {status === 'ready' && (
           <div style={{ fontSize: 9.5, color: t.sub, opacity: 0.75, padding: '4px 0 8px' }}>
-            {credit}
+            {show3d ? MAP3D_CREDIT : credit}
           </div>
         )}
       </div>
