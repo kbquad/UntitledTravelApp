@@ -12,7 +12,6 @@ import MapScreen from './screens/MapScreen';
 import DetailScreen from './screens/DetailScreen';
 import ReviewScreen from './screens/ReviewScreen';
 import AddScreen from './screens/AddScreen';
-import FiltersScreen from './screens/FiltersScreen';
 import SavedScreen from './screens/SavedScreen';
 import ProfileScreen from './screens/ProfileScreen';
 import SettingsScreen from './screens/SettingsScreen';
@@ -63,7 +62,6 @@ function App() {
         <Route path="/washroom/:id" element={<RequireOnboarding><DetailScreen t={t} /></RequireOnboarding>} />
         <Route path="/washroom/:id/review" element={<RequireOnboarding><ReviewScreen t={t} /></RequireOnboarding>} />
         <Route path="/add" element={<RequireOnboarding><AddScreen t={t} /></RequireOnboarding>} />
-        <Route path="/filters" element={<RequireOnboarding><FiltersScreen t={t} /></RequireOnboarding>} />
 
         {/* The list and the map used to be separate tabs; both now live on Stops. */}
         <Route path="/list" element={<Navigate to="/stops" replace />} />

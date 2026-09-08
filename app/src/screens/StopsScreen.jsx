@@ -1,11 +1,13 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { MapContainer, TileLayer, Marker } from 'react-leaflet';
+import { MapContainer, Marker } from 'react-leaflet';
 import MapReady from '../components/MapReady';
+import BaseTiles from '../components/BaseTiles';
 import { useStore } from '../store';
 import { useWashroomData, useCurrentLocation } from '../hooks/useWashroomData';
 import { useDataStore } from '../dataStore';
 import { CATEGORIES, FEATURES, CANADA_VIEW } from '../data/locations';
+import { formatDistance } from '../utils/geo';
 import { pinIcon, youAreHereIcon } from '../utils/mapIcons';
 import { Pill, CategoryBadge } from '../components/ui';
 import { Loading, ErrorNote } from '../components/Status';
@@ -21,6 +23,11 @@ export default function StopsScreen({ t }) {
   const setCategoryFilter = useStore((s) => s.setCategoryFilter);
   const filters = useStore((s) => s.filters);
   const toggleFilter = useStore((s) => s.toggleFilter);
+  const units = useStore((s) => s.units);
+  const radius = useStore((s) => s.radius);
+  const setRadius = useStore((s) => s.setRadius);
+  const minClean = useStore((s) => s.minClean);
+  const setMinClean = useStore((s) => s.setMinClean);
 
   const {
     sorted, mapPool, status, error, loading,
@@ -29,6 +36,9 @@ export default function StopsScreen({ t }) {
   const loadRegion = useDataStore((s) => s.loadRegion);
 
   const [map, setMap] = useState(null);
+  const [tileTrouble, setTileTrouble] = useState(false);
+  const [credit, setCredit] = useState('');
+  const [moreFilters, setMoreFilters] = useState(false);
   const onReady = useCallback((m) => setMap(m), []);
 
   useEffect(() => {
@@ -60,14 +70,10 @@ export default function StopsScreen({ t }) {
           style={{ position: 'absolute', inset: 0 }}
         >
           <MapReady onReady={onReady} />
-          <TileLayer
-            key={dark ? 'dark' : 'light'}
-            detectRetina
-            maxZoom={20}
-            maxNativeZoom={20}
-            url={dark
-              ? 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png'
-              : 'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png'}
+          <BaseTiles
+            dark={dark}
+            onTrouble={() => setTileTrouble(true)}
+            onProvider={(p) => setCredit(p.attribution)}
           />
           {here.fromDevice && (
             <Marker position={[here.lat, here.lng]} icon={youAreHereIcon(t.accent)} opacity={here.live ? 1 : 0.45} />
@@ -102,6 +108,17 @@ export default function StopsScreen({ t }) {
             <span style={{ fontSize: 15, fontWeight: 600, color: t.sub }}>Open the full map</span>
           </button>
         </div>
+
+        {tileTrouble && (
+          <div style={{
+            position: 'absolute', left: 16, right: 16, bottom: 12, zIndex: 1000,
+            padding: '10px 13px', borderRadius: 12, background: t.card,
+            border: `1px solid ${t.line2}`, fontSize: 12, lineHeight: 1.45, color: t.body,
+          }}
+          >
+            Map tiles aren’t loading. The stop list below still works.
+          </div>
+        )}
       </div>
 
       {/* Filters */}
@@ -133,6 +150,53 @@ export default function StopsScreen({ t }) {
             />
           ))}
         </div>
+
+        <button
+          type="button"
+          onClick={() => setMoreFilters((v) => !v)}
+          style={{
+            alignSelf: 'flex-start', border: 0, background: 'transparent', cursor: 'pointer',
+            fontSize: 12.5, fontWeight: 600, color: t.accent, padding: '2px 0',
+          }}
+        >
+          {moreFilters ? 'Fewer options' : `Distance & rating · ${formatDistance(radius, units)}`}
+        </button>
+
+        {moreFilters && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 12, paddingBottom: 4 }}>
+            <div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
+                <span style={{ fontSize: 12.5, fontWeight: 600, color: t.text }}>Search this far out</span>
+                <span style={{ fontSize: 12.5, fontWeight: 700, color: t.accent }}>{formatDistance(radius, units)}</span>
+              </div>
+              <input
+                type="range"
+                min={500}
+                max={50000}
+                step={500}
+                value={radius}
+                onChange={(e) => setRadius(Number(e.target.value))}
+                aria-label="Search radius"
+                style={{ width: '100%', accentColor: t.accent, marginTop: 6 }}
+              />
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              <span style={{ fontSize: 12.5, fontWeight: 600, color: t.text }}>Minimum rating</span>
+              <div style={{ display: 'flex', gap: 8 }}>
+                {[{ v: 0, l: 'Any' }, { v: 3, l: '3.0+' }, { v: 4, l: '4.0+' }, { v: 4.5, l: '4.5+' }].map((o) => (
+                  <Pill
+                    key={o.l}
+                    label={o.l}
+                    active={minClean === o.v}
+                    t={t}
+                    onClick={() => setMinClean(o.v)}
+                    style={{ flex: 1, justifyContent: 'center', display: 'flex', alignItems: 'center' }}
+                  />
+                ))}
+              </div>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* List */}
@@ -150,7 +214,7 @@ export default function StopsScreen({ t }) {
 
         {status === 'ready' && (
           <span style={{ fontSize: 13, fontWeight: 700, color: t.sub }}>
-            {sorted.length} {sorted.length === 1 ? 'place' : 'places'} nearby
+            {sorted.length} {sorted.length === 1 ? 'place' : 'places'} within {formatDistance(radius, units)}
           </span>
         )}
 
@@ -235,10 +299,30 @@ export default function StopsScreen({ t }) {
             border: `1px dashed ${t.line2}`, textAlign: 'center',
           }}
           >
-            <div style={{ fontSize: 14.5, fontWeight: 700, color: t.text }}>Nothing matches those filters</div>
-            <div style={{ fontSize: 13, lineHeight: 1.5, color: t.body, marginTop: 6 }}>
-              Clear a filter, or move the map somewhere else.
+            <div style={{ fontSize: 14.5, fontWeight: 700, color: t.text }}>
+              Nothing within {formatDistance(radius, units)}
             </div>
+            <div style={{ fontSize: 13, lineHeight: 1.5, color: t.body, marginTop: 6 }}>
+              Widen the search, clear a filter, or move the map somewhere else.
+            </div>
+            {radius < 50000 && (
+              <button
+                type="button"
+                onClick={() => setRadius(Math.min(50000, radius * 4))}
+                style={{
+                  marginTop: 12, minHeight: 42, padding: '0 18px', borderRadius: 13, border: 0,
+                  background: t.accent, color: t.onInk, fontSize: 13, fontWeight: 700, cursor: 'pointer',
+                }}
+              >
+                Search further out
+              </button>
+            )}
+          </div>
+        )}
+
+        {status === 'ready' && (
+          <div style={{ fontSize: 9.5, color: t.sub, opacity: 0.75, padding: '4px 0 8px' }}>
+            {credit}
           </div>
         )}
       </div>

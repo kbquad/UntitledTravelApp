@@ -18,7 +18,7 @@ export default function Onboarding({ t }) {
     const fix = await requestLocation();
     setLocating(false);
     setOnboarded(true);
-    navigate('/profile');
+    navigate('/profile', { state: { fromOnboarding: true } });
     if (!fix) flash('No location yet — you can turn it on in Settings.');
   };
 

@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { MapContainer, TileLayer, Marker } from 'react-leaflet';
+import { MapContainer, Marker } from 'react-leaflet';
 import MapReady from '../components/MapReady';
+import BaseTiles from '../components/BaseTiles';
 import { useStore } from '../store';
 import { useToastStore } from '../toastStore';
 import { useWashroomData, useCurrentLocation } from '../hooks/useWashroomData';
@@ -34,6 +35,8 @@ export default function MapScreen({ t }) {
 
   const [map, setMap] = useState(null);
   const [selected, setSelected] = useState(null);
+  const [tileTrouble, setTileTrouble] = useState(false);
+  const [credit, setCredit] = useState('');
   const [following, setFollowing] = useState(true);
   const [recentring, setRecentring] = useState(false);
   const onReady = useCallback((m) => setMap(m), []);
@@ -98,14 +101,10 @@ export default function MapScreen({ t }) {
         style={{ position: 'absolute', inset: 0 }}
       >
         <MapReady onReady={onReady} />
-        <TileLayer
-          key={dark ? 'dark' : 'light'}
-          detectRetina
-          maxZoom={20}
-          maxNativeZoom={20}
-          url={dark
-            ? 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png'
-            : 'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png'}
+        <BaseTiles
+          dark={dark}
+          onTrouble={() => setTileTrouble(true)}
+          onProvider={(p) => setCredit(p.attribution)}
         />
         {here.fromDevice && (
           <Marker position={[here.lat, here.lng]} icon={youAreHereIcon(t.accent)} opacity={here.live ? 1 : 0.45} />
@@ -261,12 +260,16 @@ export default function MapScreen({ t }) {
                 />
               ))}
             </div>
-            <div style={{ fontSize: 9.5, color: t.sub, opacity: 0.75 }}>
-              Map data ©{' '}
-              <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noreferrer" style={{ color: 'inherit', textDecoration: 'underline' }}>OpenStreetMap</a>
-              {' '}contributors · tiles ©{' '}
-              <a href="https://carto.com/attributions" target="_blank" rel="noreferrer" style={{ color: 'inherit', textDecoration: 'underline' }}>CARTO</a>
-            </div>
+            {tileTrouble && (
+              <div style={{
+                padding: '10px 13px', borderRadius: 12, background: t.chip,
+                fontSize: 12, lineHeight: 1.45, color: t.body,
+              }}
+              >
+                Map tiles aren’t loading right now — the stops themselves are unaffected.
+              </div>
+            )}
+            <div style={{ fontSize: 9.5, color: t.sub, opacity: 0.75 }}>{credit}</div>
           </div>
         )}
       </div>

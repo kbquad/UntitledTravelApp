@@ -1,5 +1,5 @@
 import { useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { useStore } from '../store';
 import { useDataStore } from '../dataStore';
 import { stars } from '../theme';
@@ -18,6 +18,8 @@ const TRAVEL_PRESETS = [
 // Settings, so it doubles as the edit screen.
 export default function ProfileScreen({ t }) {
   const navigate = useNavigate();
+  const routerLocation = useLocation();
+  const fromOnboarding = routerLocation.state?.fromOnboarding === true;
   const displayName = useStore((s) => s.displayName);
   const setDisplayName = useStore((s) => s.setDisplayName);
   const travelPreset = useStore((s) => s.travelPreset);
@@ -137,7 +139,11 @@ export default function ProfileScreen({ t }) {
           </span>
         </div>
 
-        <PrimaryButton t={t} onClick={() => navigate('/')}>Continue</PrimaryButton>
+        {/* Reached from onboarding it is a step; reached from Settings it is
+            an edit, and "Continue" reads as though something is unfinished. */}
+        <PrimaryButton t={t} onClick={() => navigate(fromOnboarding ? '/' : '/settings')}>
+          {fromOnboarding ? 'Continue' : 'Done'}
+        </PrimaryButton>
 
         {myReviews.length > 0 && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>

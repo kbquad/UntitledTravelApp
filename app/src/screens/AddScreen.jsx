@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { MapContainer, TileLayer } from 'react-leaflet';
+import { MapContainer } from 'react-leaflet';
 import MapReady from '../components/MapReady';
+import BaseTiles from '../components/BaseTiles';
 import { useStore } from '../store';
 import { useDataStore } from '../dataStore';
 import { useToastStore } from '../toastStore';
@@ -43,6 +44,7 @@ export default function AddScreen({ t }) {
   const [locating, setLocating] = useState(false);
 
   const [pin, setPin] = useState(null);
+  const [credit, setCredit] = useState('');
   const [map, setMap] = useState(null);
   const onMapReady = useCallback((m) => setMap(m), []);
 
@@ -185,14 +187,7 @@ export default function AddScreen({ t }) {
               style={{ position: 'absolute', inset: 0 }}
             >
               <MapReady onReady={onMapReady} />
-              <TileLayer
-                detectRetina
-                maxZoom={20}
-                maxNativeZoom={20}
-                url={dark
-                  ? 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png'
-                  : 'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png'}
-              />
+              <BaseTiles dark={dark} onProvider={(p) => setCredit(p.attribution)} />
             </MapContainer>
 
             <div style={{
@@ -227,12 +222,7 @@ export default function AddScreen({ t }) {
               ? 'Location is blocked for this site, so the map starts on Canada — drag it to the stop yourself.'
               : 'Drag the map so the pin sits on the stop.'}
           </span>
-          <span style={{ fontSize: 9.5, color: t.sub, opacity: 0.75 }}>
-            Map data ©{' '}
-            <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noreferrer" style={{ color: 'inherit', textDecoration: 'underline' }}>OpenStreetMap</a>
-            {' '}contributors · tiles ©{' '}
-            <a href="https://carto.com/attributions" target="_blank" rel="noreferrer" style={{ color: 'inherit', textDecoration: 'underline' }}>CARTO</a>
-          </span>
+          <span style={{ fontSize: 9.5, color: t.sub, opacity: 0.75 }}>{credit}</span>
         </div>
 
         <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
