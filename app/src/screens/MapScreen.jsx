@@ -166,7 +166,7 @@ export default function MapScreen({ t }) {
             : 'Switch between 3D terrain and the flat map'}
           style={{
             minHeight: 36, padding: '0 13px', borderRadius: 11, flex: 'none',
-            cursor: threeDFailed ? 'not-allowed' : 'pointer',
+            cursor: threeDFailed === 'webgl' ? 'not-allowed' : 'pointer',
             border: `1.5px solid ${show3d ? t.accent : t.line2}`,
             background: show3d ? t.accent : t.card,
             color: show3d ? t.onInk : t.text,
@@ -324,7 +324,7 @@ export default function MapScreen({ t }) {
         <Suspense fallback={null}>
         <MapScene3D
           centre={centre3d ?? { lat: here.lat, lng: here.lng }}
-          spanM={9000}
+          spanM={5000}
           stops={mapPool}
           me={meDot}
           selectedId={selected?.id}
@@ -366,7 +366,9 @@ export default function MapScreen({ t }) {
           <Marker
             key={`${w.id}-${dark}-${saved.includes(w.id)}-${w.scoreText}`}
             position={[w.lat, w.lng]}
-            icon={pinIcon(w, { saved: saved.includes(w.id), cardColor: t.card, unratedColor: t.sub })}
+            icon={pinIcon(w, {
+              saved: saved.includes(w.id), cardColor: t.card, unratedColor: t.sub, accent: t.accent,
+            })}
             eventHandlers={{ click: () => setSelected(w) }}
           />
         ))}

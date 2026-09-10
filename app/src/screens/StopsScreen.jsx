@@ -89,7 +89,7 @@ export default function StopsScreen({ t }) {
           <Suspense fallback={null}>
           <MapScene3D
             centre={centre}
-            spanM={6000}
+            spanM={4000}
             stops={mapPool.slice(0, 60)}
             me={meDot}
             interactive={false}
@@ -121,7 +121,9 @@ export default function StopsScreen({ t }) {
               <Marker
                 key={`${w.id}-${dark}-${saved.includes(w.id)}-${w.scoreText}`}
                 position={[w.lat, w.lng]}
-                icon={pinIcon(w, { saved: saved.includes(w.id), cardColor: t.card, unratedColor: t.sub })}
+                icon={pinIcon(w, {
+                  saved: saved.includes(w.id), cardColor: t.card, unratedColor: t.sub, accent: t.accent,
+                })}
                 eventHandlers={{ click: () => navigate(`/washroom/${w.id}`) }}
               />
             ))}
@@ -196,7 +198,11 @@ export default function StopsScreen({ t }) {
           onClick={() => setMoreFilters((v) => !v)}
           style={{
             alignSelf: 'flex-start', border: 0, background: 'transparent', cursor: 'pointer',
-            fontSize: 12.5, fontWeight: 600, color: t.accent, padding: '2px 0',
+            fontSize: 12.5, fontWeight: 600, color: t.accent,
+            // Text alone gave this a 19px hit area. The negative margin keeps
+            // it sitting where the design puts it while the button itself is
+            // a real target.
+            minHeight: 40, padding: '0 10px', margin: '-8px -10px',
           }}
         >
           {moreFilters ? 'Fewer options' : `Distance & rating · ${formatDistance(radius, units)}`}

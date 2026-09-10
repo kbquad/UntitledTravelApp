@@ -90,6 +90,50 @@ export async function tileMosaic({
   };
 }
 
+// How the design's two themes want the world to look. Satellite imagery is
+// raw green-and-brown and sits badly next to the app's warm off-white (or its
+// cool near-black): grading it toward the design's own map colour is what
+// makes the 3D view read as part of this app rather than an embedded map.
+export const GRADE = {
+  light: { tint: '#DDE3DC', tintAmount: 0.24, desaturate: 0.44, brightness: 1.06 },
+  dark: { tint: '#181C21', tintAmount: 0.36, desaturate: 0.56, brightness: 0.7 },
+};
+
+/**
+ * Grades a canvas in place: pulls colour out, mixes toward a tint, then
+ * adjusts brightness. One pass over the pixels, done once per mosaic.
+ */
+export function gradeCanvas(canvas, {
+  tint, tintAmount, desaturate, brightness,
+}) {
+  const ctx = canvas.getContext('2d', { willReadFrequently: true });
+  let img;
+  try {
+    img = ctx.getImageData(0, 0, canvas.width, canvas.height);
+  } catch {
+    return canvas;   // a tainted canvas: leave the imagery as it came
+  }
+  const d = img.data;
+  const tr = parseInt(tint.slice(1, 3), 16);
+  const tg = parseInt(tint.slice(3, 5), 16);
+  const tb = parseInt(tint.slice(5, 7), 16);
+
+  for (let i = 0; i < d.length; i += 4) {
+    const lum = 0.2126 * d[i] + 0.7152 * d[i + 1] + 0.0722 * d[i + 2];
+    let r = d[i] + (lum - d[i]) * desaturate;
+    let g = d[i + 1] + (lum - d[i + 1]) * desaturate;
+    let b = d[i + 2] + (lum - d[i + 2]) * desaturate;
+    r += (tr - r) * tintAmount;
+    g += (tg - g) * tintAmount;
+    b += (tb - b) * tintAmount;
+    d[i] = Math.min(255, r * brightness);
+    d[i + 1] = Math.min(255, g * brightness);
+    d[i + 2] = Math.min(255, b * brightness);
+  }
+  ctx.putImageData(img, 0, 0);
+  return canvas;
+}
+
 // A square-ish box of the given span, centred on a point.
 export const boxAround = (lat, lng, spanM) => {
   const dLat = spanM / 2 / 110540;

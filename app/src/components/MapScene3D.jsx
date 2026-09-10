@@ -1,8 +1,12 @@
 import { useEffect, useRef } from 'react';
 import * as THREE from 'three';
+import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { demSampler } from '../lib/dem';
+import { fetchBuildings, BUILDING_SPAN_M } from '../lib/buildings';
+import { pinTexture } from '../lib/pinTexture';
+import { categoryColor } from '../theme';
 import {
-  tileMosaic, boxAround, lngToGlobalX, latToGlobalY,
+  tileMosaic, boxAround, lngToGlobalX, latToGlobalY, gradeCanvas, GRADE,
 } from '../lib/mosaic';
 
 export { MAP3D_CREDIT } from '../lib/mosaic';
@@ -17,7 +21,7 @@ const VERTICAL = 1.7;     // gentle relief exaggeration; a map read from above
                           // shows almost no shape at true scale
 
 export default function MapScene3D({
-  centre, spanM = 9000, stops = [], me, t, selectedId, onSelect, onStatus, sceneApi,
+  centre, spanM = 5000, stops = [], me, t, selectedId, onSelect, onStatus, sceneApi,
   interactive = true, pinScale = 1,
 }) {
   const mountRef = useRef(null);
@@ -50,9 +54,16 @@ export default function MapScene3D({
     Object.assign(renderer.domElement.style, { width: '100%', height: '100%', display: 'block' });
 
     const scene = new THREE.Scene();
-    const sky = new THREE.Color(t.dark ? '#101317' : '#C8D6DE');
+    // The top of the design's `scene` gradient, so the horizon behind the
+    // terrain is the same sky the flat illustrations use.
+    const sky = new THREE.Color(t.dark ? '#131A26' : '#BBD3DE');
     scene.background = sky;
-    scene.fog = new THREE.Fog(sky.getHex(), spanM * 0.55, spanM * 1.3);
+    // The terrain is a finite box, so past its far edge there is nothing but
+    // sky at ground level. Fog is what hides that edge — but it has to start
+    // beyond the middle of the map, or it hazes the city instead of the
+    // horizon. The far corner of the ground sits about spanM * 1.2 from the
+    // camera at the resting pitch, so that is where it has to be opaque.
+    scene.fog = new THREE.Fog(sky.getHex(), spanM * 0.85, spanM * 1.2);
 
     const camera = new THREE.PerspectiveCamera(50, mount.clientWidth / mount.clientHeight, 5, spanM * 6);
     scene.add(new THREE.HemisphereLight(0xffffff, t.dark ? 0x0b0e12 : 0x8a8578, t.dark ? 0.55 : 1.0));
@@ -74,37 +85,48 @@ export default function MapScene3D({
     const box = boxAround(centre.lat, centre.lng, spanM);
     let heightAt = () => 0;
 
+    // Terrain heights are metres above sea level, but the camera orbits the
+    // origin. Calgary sits at 1045 m and Denver at 1600 — left absolute, the
+    // ground rises a kilometre above the point the camera is looking at and
+    // the map renders as sky. So the world is shifted to put the centre's own
+    // ground at y=0, and every height is measured from there.
+    let baseH = 0;
+    const elevOf = (lat, lng) => (heightAt(lat, lng) - baseH) * VERTICAL;
+
     const pins = [];        // everything to tear down on the next pass
     const pickables = [];   // what the raycaster is allowed to hit
 
     const buildMarkers = () => {
-      pins.forEach((m) => { world.remove(m); m.geometry.dispose(); m.material.dispose(); });
+      // Sprite textures are shared and cached by colour, so the material is
+      // disposed but its map deliberately is not.
+      pins.forEach((m) => { world.remove(m); m.geometry?.dispose?.(); m.material.dispose(); });
       pins.length = 0;
       pickables.length = 0;
 
       (stopsRef.current ?? []).forEach((s) => {
         const p = toLocal(s.lat, s.lng);
         if (Math.abs(p.x) > spanM / 2 || Math.abs(p.z) > spanM / 2) return;
-        const ground = heightAt(s.lat, s.lng) * VERTICAL;
+        const ground = elevOf(s.lat, s.lng);
         const on = s.id === selectedRef.current;
-        const colour = new THREE.Color(s.categoryColor || t.accent);
+        const hex = categoryColor(s.category, t.accent);
         // Pins scale with the area, so they stay the same size on screen as
         // the camera pulls back — `pinScale` lifts them in a short header,
         // where the same fraction of the frame is far fewer pixels.
         const size = (spanM / 110) * pinScale;
 
-        // A cone standing on the ground: reads as a pin from any angle, and
-        // needs no billboarding to stay legible as the camera orbits.
-        const pin = new THREE.Mesh(
-          new THREE.ConeGeometry(size * 0.45, size * 1.6, 10),
-          new THREE.MeshLambertMaterial({
-            color: colour,
-            emissive: colour,
-            emissiveIntensity: on ? 0.65 : 0.15,
-          }),
-        );
-        pin.position.set(p.x, ground + size * 0.8, p.z);
+        // A map pin, drawn as a sprite so it always faces the camera. An
+        // earlier version stood a cone on the ground, which on green terrain
+        // read as a tree rather than a marker.
+        const pin = new THREE.Sprite(new THREE.SpriteMaterial({
+          map: pinTexture(hex, on),
+          depthTest: true,
+          sizeAttenuation: true,
+        }));
+        pin.scale.set(size * 2, size * 2.6, 1);
+        pin.center.set(0.5, 0);          // the point sits on the ground
+        pin.position.set(p.x, ground, p.z);
         pin.userData.stop = s;
+        pin.renderOrder = 2;
         world.add(pin);
         pins.push(pin);
 
@@ -116,7 +138,8 @@ export default function MapScene3D({
           new THREE.SphereGeometry(size * 1.5, 8, 6),
           new THREE.MeshBasicMaterial({ transparent: true, opacity: 0, depthWrite: false }),
         );
-        hit.position.copy(pin.position);
+        // Centred on the pin head, not on the ground point it stands at.
+        hit.position.set(p.x, ground + size * 1.3, p.z);
         hit.renderOrder = -1;
         hit.userData.stop = s;
         world.add(hit);
@@ -136,7 +159,7 @@ export default function MapScene3D({
             new THREE.MeshBasicMaterial({ color: new THREE.Color(t.accent) }),
           );
           ring.rotation.x = -Math.PI / 2;
-          ring.position.set(p.x, heightAt(you.lat, you.lng) * VERTICAL + r * 0.3, p.z);
+          ring.position.set(p.x, elevOf(you.lat, you.lng) + r * 0.3, p.z);
           world.add(ring);
           pins.push(ring);
         }
@@ -155,7 +178,7 @@ export default function MapScene3D({
           const z = -half + (j / (GRID - 1)) * spanM;
           const lat = centre.lat - z / mPerDegLat;
           const lng = centre.lng + x / mPerDegLng;
-          const h = dem ? dem(lat, lng) : 0;
+          const h = dem ? dem(lat, lng) - baseH : 0;
 
           const o = (j * GRID + i) * 3;
           positions[o] = x;
@@ -199,12 +222,12 @@ export default function MapScene3D({
         tex.anisotropy = renderer.capabilities.getMaxAnisotropy?.() ?? 1;
         tex.wrapS = THREE.ClampToEdgeWrapping;
         tex.wrapT = THREE.ClampToEdgeWrapping;
-        material = new THREE.MeshLambertMaterial({
-          map: tex,
-          color: new THREE.Color(t.dark ? 0x6b7683 : 0xffffff),
-        });
+        // The mosaic is already graded into the theme, so the material must
+        // not tint it a second time.
+        material = new THREE.MeshLambertMaterial({ map: tex });
       } else {
-        material = new THREE.MeshLambertMaterial({ color: new THREE.Color(t.dark ? '#243026' : '#93A585') });
+        // No imagery: the design's own map colour rather than a guess at grass.
+        material = new THREE.MeshLambertMaterial({ color: new THREE.Color(t.mapWater) });
       }
 
       const ground = new THREE.Mesh(geo, material);
@@ -213,6 +236,55 @@ export default function MapScene3D({
       if (old) { world.remove(old); old.geometry.dispose(); old.material.map?.dispose(); old.material.dispose(); }
       world.add(ground);
       buildMarkers();
+    };
+
+    // Extrudes footprints onto the terrain as one merged mesh. One mesh per
+    // building would be a thousand draw calls for a downtown; merged, a city
+    // costs the same as a single object.
+    const buildCity = (footprints) => {
+      const parts = [];
+      for (const { ring, height } of footprints) {
+        const pts = ring.map((n) => {
+          const l = toLocal(n.lat, n.lng);
+          return new THREE.Vector2(l.x, l.z);
+        });
+        // Anything mostly outside the view is not worth carrying.
+        if (pts.some((p) => Math.abs(p.x) > spanM / 2 || Math.abs(p.y) > spanM / 2)) continue;
+
+        let geo;
+        try {
+          geo = new THREE.ExtrudeGeometry(new THREE.Shape(pts), {
+            // Same exaggeration the terrain gets, so a building and the hill
+            // it stands on are in one vertical world rather than two.
+            depth: height * VERTICAL, bevelEnabled: false, curveSegments: 1,
+          });
+        } catch {
+          continue;      // a self-intersecting way earcut can't triangulate
+        }
+        // The shape is extruded in +z and lies in the xy plane; stand it up so
+        // its footprint is on the ground and its height runs along +y.
+        geo.rotateX(-Math.PI / 2);
+        // Sit it on the terrain under its first corner. Buildings are small
+        // next to the DEM's resolution, so one sample each is plenty.
+        geo.translate(0, elevOf(ring[0].lat, ring[0].lng), 0);
+        geo.deleteAttribute('uv');   // merging needs every part to match
+        parts.push(geo);
+      }
+      if (!parts.length) return;
+
+      const merged = mergeGeometries(parts, false);
+      parts.forEach((g) => g.dispose());
+      if (!merged) return;
+      merged.computeVertexNormals();
+
+      const city = new THREE.Mesh(merged, new THREE.MeshLambertMaterial({
+        color: new THREE.Color(t.dark ? '#39414C' : '#EAE5DC'),
+        flatShading: true,     // so walls and roofs catch the sun differently
+      }));
+      city.name = 'city';
+      const old = world.getObjectByName('city');
+      if (old) { world.remove(old); old.geometry.dispose(); old.material.dispose(); }
+      world.add(city);
     };
 
     buildGround(null, null);
@@ -229,21 +301,43 @@ export default function MapScene3D({
       }
       const dem = await demSampler(cols, { signal: controller.signal });
       if (disposed) return;
-      if (dem) heightAt = dem;
+      if (dem) {
+        heightAt = dem;
+        baseH = dem(centre.lat, centre.lng);
+      }
 
       const mosaic = await tileMosaic({
         box, zoom: 13, urlFor: IMAGERY_URL, signal: controller.signal,
       });
       if (disposed) return;
+      if (mosaic) gradeCanvas(mosaic.canvas, t.dark ? GRADE.dark : GRADE.light);
 
       buildGround(dem, mosaic);
       onStatus?.({ ok: true, terrain: !!dem, imagery: !!mosaic });
+
+      // The city goes on last. It is the slowest of the three fetches and the
+      // one the map is least broken without, so nothing waits on it.
+      const city = await fetchBuildings({
+        box: boxAround(centre.lat, centre.lng, Math.min(spanM, BUILDING_SPAN_M)),
+        signal: controller.signal,
+      });
+      if (disposed || !city) return;
+      buildCity(city);
+      onStatus?.({
+        ok: true, terrain: !!dem, imagery: !!mosaic, buildings: city.length,
+      });
     })();
 
     // ── camera: orbit around the centre ─────────────────────────────────────
     let yaw = 0;
-    let pitch = 0.62;                 // looking down at the ground, not at it edge-on
-    let dist = spanM * 0.75;
+    // Low enough that buildings show their sides — straight down, a city is
+    // just a pattern of roofs. The header is the exception: it is a wide,
+    // short strip, and at a low angle the ground runs out inside the frame
+    // and the world reads as a floating island, so it looks down harder.
+    const restPitch = interactive ? 0.5 : 1.18;
+    const restDist = spanM * (interactive ? 0.75 : 0.54);
+    let pitch = restPitch;
+    let dist = restDist;
     const place = () => {
       const cy = Math.cos(pitch);
       camera.position.set(
@@ -314,7 +408,7 @@ export default function MapScene3D({
     apiRef.current = {
       zoomIn: () => zoomBy(1 / 1.35),
       zoomOut: () => zoomBy(1.35),
-      resetView: () => { yaw = 0; pitch = 0.62; dist = spanM * 0.75; place(); },
+      resetView: () => { yaw = 0; pitch = restPitch; dist = restDist; place(); },
       refreshMarkers: (nextStops, nextSelected, nextMe) => {
         stopsRef.current = nextStops;
         selectedRef.current = nextSelected;
@@ -352,7 +446,11 @@ export default function MapScene3D({
       el.removeEventListener('wheel', onWheel);
       scene.traverse((o) => {
         o.geometry?.dispose?.();
-        if (o.material) { o.material.map?.dispose?.(); o.material.dispose?.(); }
+        if (!o.material) return;
+        // Pin textures are cached across scenes by colour; disposing one here
+        // would blank the pins on the next map that asks for that colour.
+        if (!o.isSprite) o.material.map?.dispose?.();
+        o.material.dispose?.();
       });
       renderer.dispose();
       if (renderer.domElement.parentNode === mount) mount.removeChild(renderer.domElement);

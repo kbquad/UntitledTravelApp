@@ -55,7 +55,7 @@ export const DemoBanner = ({ t }) => {
     }}
     >
       <strong style={{ color: t.text }}>Demo mode.</strong> Not connected to a database, so
-      reviews stay in this browser only. Add your Supabase keys to go live.
+      reviews stay in this browser only. Add your Firebase config to go live.
     </div>
   );
 };

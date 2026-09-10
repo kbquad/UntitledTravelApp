@@ -1,4 +1,5 @@
 import L from 'leaflet';
+import { categoryColor } from '../theme';
 
 const escapeHtml = (s) => String(s).replace(/[&<>"']/g, (c) => (
   { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]
@@ -6,7 +7,9 @@ const escapeHtml = (s) => String(s).replace(/[&<>"']/g, (c) => (
 
 // Score-badge pin. A washroom nobody has reviewed shows a small neutral dot
 // instead of a number, so unrated never reads as poorly-rated.
-export const pinIcon = (washroom, { saved, cardColor, unratedColor }) => {
+export const pinIcon = (washroom, {
+  saved, cardColor, unratedColor, accent,
+}) => {
   const color = washroom.rated ? washroom.scoreFg : unratedColor;
   const label = washroom.rated
     ? `<div style="padding:4px 9px 5px;border-radius:11px;background:${color};color:#FFFFFF;font-size:12px;font-weight:600;box-shadow:0 4px 14px rgba(0,0,0,.28);white-space:nowrap;border:${saved ? `2px solid ${cardColor}` : '0'}">${escapeHtml(washroom.scoreText)}</div>`
@@ -16,8 +19,8 @@ export const pinIcon = (washroom, { saved, cardColor, unratedColor }) => {
   // on top of the original washroom-only map — toilets (almost all existing
   // data) keep the plain pin they've always had.
   const category = washroom.category || 'toilet';
-  const categoryDot = category !== 'toilet' && washroom.categoryColor
-    ? `<div style="position:absolute;top:-3px;right:-3px;width:11px;height:11px;border-radius:50%;background:${washroom.categoryColor};border:2px solid ${cardColor}"></div>`
+  const categoryDot = category !== 'toilet'
+    ? `<div style="position:absolute;top:-3px;right:-3px;width:11px;height:11px;border-radius:50%;background:${categoryColor(category, accent)};border:2px solid ${cardColor}"></div>`
     : '';
 
   return L.divIcon({

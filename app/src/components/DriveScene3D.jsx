@@ -4,6 +4,9 @@ import { buildCorridor } from '../lib/corridor';
 import { elevations } from '../lib/elevation';
 import { demSampler } from '../lib/dem';
 import { imagerySampler, corridorTexture } from '../lib/imagery';
+import { gradeCanvas, GRADE } from '../lib/mosaic';
+import { pinTexture } from '../lib/pinTexture';
+import { categoryColor } from '../theme';
 
 // The 3D drive: the real routed road, laid on real ground, flown from a
 // camera that advances with the preview.
@@ -124,10 +127,11 @@ export default function DriveScene3D({
     const disposeGroup = (g) => {
       g.traverse((o) => {
         o.geometry?.dispose?.();
-        if (o.material) {
-          o.material.map?.dispose?.();
-          o.material.dispose?.();
-        }
+        if (!o.material) return;
+        // Pin textures are cached by colour and shared with the 3D map, so
+        // this group does not own them.
+        if (!o.isSprite) o.material.map?.dispose?.();
+        o.material.dispose?.();
       });
     };
 
@@ -312,10 +316,8 @@ export default function DriveScene3D({
         side: THREE.DoubleSide,
       })));
 
-      // Stops along the route, as markers in their category colour — the same
-      // places listed on the route strip, so the drive shows where they are.
-      const markerGeo = new THREE.SphereGeometry(38, 12, 10);
-      const poleGeo = new THREE.CylinderGeometry(4, 4, 150, 6);
+      // Stops along the route, as the same map pin the 3D map plants — the
+      // places listed on the route strip, shown where they actually are.
       stops.forEach((s) => {
         const p = corridor.proj.toLocal(s.lat, s.lng);
         let bestK = 0;
@@ -325,13 +327,14 @@ export default function DriveScene3D({
           if (d < bestD) { bestD = d; bestK = k; }
         }
         const baseY = roadH[bestK];
-        const col = new THREE.Color(s.categoryColor || t.accent);
-        const pole = new THREE.Mesh(poleGeo, new THREE.MeshLambertMaterial({ color: col }));
-        pole.position.set(p.x, baseY + 75, p.z);
-        next.add(pole);
-        const head = new THREE.Mesh(markerGeo, new THREE.MeshBasicMaterial({ color: col }));
-        head.position.set(p.x, baseY + 175, p.z);
-        next.add(head);
+        const pin = new THREE.Sprite(new THREE.SpriteMaterial({
+          map: pinTexture(categoryColor(s.category, t.accent)),
+          sizeAttenuation: true,
+        }));
+        pin.scale.set(170, 220, 1);
+        pin.center.set(0.5, 0);
+        pin.position.set(p.x, baseY, p.z);
+        next.add(pin);
       });
 
       // Swap only now that `next` is complete.
@@ -380,6 +383,9 @@ export default function DriveScene3D({
           width: Math.min(4096, maxTexture), height: 256,
         });
         if (disposed) return;
+        // Same grade as the 3D map, so driving out of the map view does not
+        // change what the world is made of.
+        gradeCanvas(drape, t.dark ? GRADE.dark : GRADE.light);
         build(fine, grid, roadHeights, 'dem', drape);
         return;
       }

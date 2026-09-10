@@ -22,7 +22,7 @@ export default function DetailScreen({ t }) {
 
   const cur = useWashroom(id);
   const { reviews, loading: reviewsLoading } = useReviews(id);
-  const { allDecorated } = useWashroomData();
+  const { allDecorated, loading: stopsLoading } = useWashroomData();
 
   const isSaved = saved.includes(id);
 
@@ -34,7 +34,39 @@ export default function DetailScreen({ t }) {
     .sort((a, b) => a.dist - b.dist)
     .slice(0, 3), [allDecorated, id]);
 
-  if (!cur) return <div className="screen" style={{ background: t.bg }}><Loading t={t} /></div>;
+  // A stop we haven't got. Once loading has finished that means it genuinely
+  // isn't there — a stale bookmark, or one since removed — and spinning
+  // forever is a dead end with no way out of it.
+  if (!cur) {
+    return (
+      <div className="screen" style={{ background: t.bg }}>
+        {stopsLoading ? <Loading t={t} /> : (
+          <div style={{
+            display: 'flex', flexDirection: 'column', alignItems: 'center',
+            justifyContent: 'center', gap: 11, flex: 1, padding: '48px 32px', textAlign: 'center',
+          }}
+          >
+            <div style={{ fontSize: 19, fontWeight: 800, letterSpacing: '-.02em', color: t.text }}>
+              We haven’t got that stop
+            </div>
+            <div style={{ fontSize: 13.5, lineHeight: 1.55, color: t.body }}>
+              It may have been removed, or the link may be out of date.
+            </div>
+            <button
+              type="button"
+              onClick={() => navigate('/stops')}
+              style={{
+                marginTop: 6, minHeight: 46, padding: '0 22px', borderRadius: 14, border: 0,
+                background: t.accent, color: t.onInk, fontSize: 14.5, fontWeight: 700, cursor: 'pointer',
+              }}
+            >
+              Browse stops
+            </button>
+          </div>
+        )}
+      </div>
+    );
+  }
 
   const myReview = reviews.find((r) => r.isMine);
 

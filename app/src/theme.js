@@ -7,6 +7,17 @@
 // picked — but the hex it resolves to now goes through the design's contrast
 // rules before anything paints with it.
 
+// One colour per stop kind, verbatim from the design's `badge(type, ac)`.
+// Toilets take the app's accent — they are the overwhelming majority of the
+// data, so they read as "the app's own colour"; the other three are fixed so
+// the categories stay apart from each other whatever accent is picked.
+//
+// Lives here, not beside a component, because the badges, the flat map's pins
+// and the 3D scenes all colour by category and must not drift apart.
+export const categoryColor = (category, accent) => ({
+  toilet: accent, food: '#B45309', fuel: '#1F5FD0', rest: '#5B7C4A',
+}[category] || accent);
+
 export const GREEN = '#166534';
 export const AMBER = '#92400E';
 export const RED = '#C2334D';

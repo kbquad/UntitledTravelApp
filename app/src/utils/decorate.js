@@ -3,13 +3,6 @@ import { formatDistance, formatWalk } from './geo';
 import { formatStatus, formatHoursRange, isOpenNow } from './hours';
 import { categoryLabel } from '../data/locations';
 
-// One accent per stop category, independent of the app's own accent colour —
-// these badges need to stay legible and tell categories apart no matter what
-// hue the user has picked in Appearance.
-const CATEGORY_COLOR = {
-  toilet: '#4C8DFF', food: '#C99A5B', fuel: '#5C9A78', rest: '#9A7FD6',
-};
-
 // The facilities the data can actually answer yes or no to. Anything not
 // recorded is absent from this list rather than shown as a "no" — claiming a
 // stop lacks a changing table when nobody ever recorded one is a different
@@ -68,7 +61,6 @@ export const decorateWashroom = (w, distMetres, units) => {
     rated,
     category,
     categoryLabel: categoryLabel(category),
-    categoryColor: CATEGORY_COLOR[category] || CATEGORY_COLOR.toilet,
     cleanPct,
     cleanLabel: cleanPct == null ? 'Not rated' : `${cleanPct}% clean`,
     facilities: facilitiesOf(w),

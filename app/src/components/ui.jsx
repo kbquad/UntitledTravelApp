@@ -1,6 +1,7 @@
 // The design's shared controls. Sizes, radii and weights are taken from
 // Roadside.dc.html rather than re-invented, so screens composed from these
 // come out matching the mock without each one restating the numbers.
+import { categoryColor } from '../theme';
 
 // Filter / selection pill — the design's `pill(active, ac)`.
 export const Pill = ({
@@ -61,13 +62,6 @@ export const ToggleTrack = ({ on, t }) => (
     />
   </span>
 );
-
-// One colour per stop kind, from the design's `badge(type, ac)`. Toilets take
-// the app's accent; the rest are fixed so the categories stay distinguishable
-// whatever accent is picked.
-export const categoryColor = (category, accent) => ({
-  toilet: accent, food: '#B45309', fuel: '#1F5FD0', rest: '#5B7C4A',
-}[category] || accent);
 
 export const CategoryBadge = ({ category, label, t, style }) => {
   const c = categoryColor(category, t.accent);
