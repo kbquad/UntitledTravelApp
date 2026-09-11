@@ -9,11 +9,12 @@ name: Import OSM
 # same service account: roles/datastore.user is what lets it write.
 
 on:
-  # Pushing a tag named import-<anything> runs a full import. It is the same
-  # job as the button below, for anyone — or anything — that can push but
-  # cannot press buttons; the tag is also a record of when imports ran.
+  # Pushing a branch named import/<anything> runs a full import. It is the
+  # same job as the button below, for anyone — or anything — that can push
+  # but cannot press buttons. Delete the branch afterwards; it carries no
+  # code of its own.
   push:
-    tags: ['import-*']
+    branches: ['import/**']
   workflow_dispatch:
     inputs:
       regions:
