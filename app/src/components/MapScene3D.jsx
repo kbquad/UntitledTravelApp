@@ -16,6 +16,15 @@ const IMAGERY_URL = (x, y, z) => `https://server.arcgisonline.com/ArcGIS/rest/se
 // A map area is an axis-aligned box in Mercator, so unlike the drive corridor
 // the ground here is a plain grid and the imagery is a straight tile mosaic —
 // UVs interpolate linearly across it with no resampling.
+// A signal that fires when either the parent aborts or `ms` passes.
+const withDeadline = (parent, ms) => {
+  const c = new AbortController();
+  const stop = () => c.abort();
+  parent.addEventListener('abort', stop, { once: true });
+  setTimeout(stop, ms);
+  return c.signal;
+};
+
 const GRID = 96;          // vertices per side
 const VERTICAL = 1.7;     // gentle relief exaggeration; a map read from above
                           // shows almost no shape at true scale
@@ -299,27 +308,41 @@ export default function MapScene3D({
           });
         }
       }
-      const dem = await demSampler(cols, { signal: controller.signal });
+      // Terrain and imagery come from different hosts, so they are fetched
+      // together rather than one after the other, and both share a deadline:
+      // a tile host that is merely slow must not leave the map as a blank
+      // plane indefinitely. Past the deadline, whatever arrived is used and
+      // the rest is treated as missing — which, if that is everything, hands
+      // the screen back to the flat map.
+      const deadline = withDeadline(controller.signal, 20000);
+      const [dem, mosaic] = await Promise.all([
+        // z14 is ~10 m per sample here: finer than the 96-vertex grid, so
+        // every vertex gets its own height rather than an interpolated one.
+        demSampler(cols, { zoom: 14, signal: deadline }).catch(() => null),
+        // z15 is ~5 m per pixel — roughly the screen's own resolution at this
+        // span. The mosaic drops a level by itself if that would be too many
+        // tiles for a wider view.
+        tileMosaic({
+          box, zoom: 15, urlFor: IMAGERY_URL, signal: deadline,
+        }).catch(() => null),
+      ]);
       if (disposed) return;
       if (dem) {
         heightAt = dem;
         baseH = dem(centre.lat, centre.lng);
       }
-
-      const mosaic = await tileMosaic({
-        box, zoom: 13, urlFor: IMAGERY_URL, signal: controller.signal,
-      });
-      if (disposed) return;
       if (mosaic) gradeCanvas(mosaic.canvas, t.dark ? GRADE.dark : GRADE.light);
 
       buildGround(dem, mosaic);
       onStatus?.({ ok: true, terrain: !!dem, imagery: !!mosaic });
 
       // The city goes on last. It is the slowest of the three fetches and the
-      // one the map is least broken without, so nothing waits on it.
+      // one the map is least broken without, so nothing waits on it — and
+      // Overpass under load can take most of a minute, so it gets its own,
+      // longer deadline.
       const city = await fetchBuildings({
         box: boxAround(centre.lat, centre.lng, Math.min(spanM, BUILDING_SPAN_M)),
-        signal: controller.signal,
+        signal: withDeadline(controller.signal, 45000),
       });
       if (disposed || !city) return;
       buildCity(city);

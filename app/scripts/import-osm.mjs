@@ -122,16 +122,32 @@ const hours = (tags) => (tags['opening_hours'] === '24/7'
   // flagged so the app can say "hours unknown" instead of claiming 24/7.
   : { openFrom: 0, openTo: 24, hoursKnown: false });
 
+// A facility flag in three states: true, false, or undefined for "the tag
+// is not there". Mappers tag what a place HAS far more often than what it
+// lacks, so an absent tag is silence, not a no — and writing it as false
+// would put a cross beside "Showers" on every toilet in the country. Keys
+// that resolve to undefined are dropped before the write.
+const tri = (v) => {
+  if (v == null || v === '') return undefined;
+  if (yes(v)) return true;
+  if (v === 'no' || v === 'none') return false;
+  return undefined;
+};
+const anyOf = (...vals) => (vals.some((v) => v === true) ? true
+  : vals.some((v) => v === false) ? false : undefined);
+
 // `maxheight` is the height limit on the way in, in metres unless it says
-// otherwise. A tall van is around 2.8 m, so anything at or above 3 clears one
-// — and a barrier tagged with no number tells us nothing, so it stays false.
+// otherwise. A tall van is around 2.8 m, so 3 and up clears one; a barrier
+// tagged with no number tells us nothing.
 const clearsAVan = (raw) => {
-  if (!raw) return false;
+  if (!raw) return undefined;
   const m = String(raw).match(/^\s*(\d+(?:\.\d+)?)\s*(m|ft)?/i);
-  if (!m) return false;
+  if (!m) return undefined;
   const metres = m[2]?.toLowerCase() === 'ft' ? parseFloat(m[1]) * 0.3048 : parseFloat(m[1]);
   return metres >= 3;
 };
+
+const dropUndefined = (o) => Object.fromEntries(Object.entries(o).filter(([, v]) => v !== undefined));
 
 const fee = (tags) => {
   if (tags.fee === 'no') return 'Free';
@@ -164,7 +180,7 @@ const toDoc = (el, provinceName) => {
   if (lat < 41 || lat > 84 || lng < -142 || lng > -52) return null; // outside Canada
 
   const tags = el.tags ?? {};
-  return {
+  return dropUndefined({
     // OSM ids are stable and unique per element type, which makes re-running
     // the import an update rather than a duplicate.
     id: `osm-${el.type}-${el.id}`,
@@ -175,27 +191,26 @@ const toDoc = (el, provinceName) => {
     lng: Math.round(lng * 1e6) / 1e6,
     fee: fee(tags),
     needsKey: tags.access === 'private' || tags.access === 'customers' || !!tags['toilets:access'],
-    wheelchair: yes(tags.wheelchair),
-    babyChange: yes(tags.changing_table),
-    genderNeutral: yes(tags.unisex) || tags['toilets:gender'] === 'unisex',
-    // The road-trip facilities. Each maps onto a tag OpenStreetMap actually
-    // uses; anything untagged comes through false, which the app reads as
-    // "not recorded" rather than "hasn't got one". Without this the six new
-    // filters would match nothing on imported data, permanently.
-    familyRoom: yes(tags['toilets:family']) || yes(tags.family)
-      || tags['changing_table:location'] === 'room',
-    vanParking: yes(tags.hgv) || clearsAVan(tags.maxheight),
-    showers: yes(tags.shower) || tags.amenity === 'shower',
-    dogFriendly: yes(tags.dog) || yes(tags.dogs),
-    water: yes(tags.drinking_water) || tags.amenity === 'drinking_water',
+    // Facilities, each from the tag OpenStreetMap actually uses for it, and
+    // each in three states — see `tri`. Without the six road-trip ones the
+    // app's new filters would match nothing on imported data, permanently.
+    wheelchair: tri(tags.wheelchair),
+    babyChange: tri(tags.changing_table),
+    genderNeutral: anyOf(tri(tags.unisex), tags['toilets:gender'] === 'unisex' ? true : undefined),
+    familyRoom: anyOf(tri(tags['toilets:family']), tri(tags.family),
+      tags['changing_table:location'] === 'room' ? true : undefined),
+    vanParking: anyOf(tri(tags.hgv), clearsAVan(tags.maxheight)),
+    showers: anyOf(tri(tags.shower), tags.amenity === 'shower' ? true : undefined),
+    dogFriendly: anyOf(tri(tags.dog), tri(tags.dogs)),
+    water: anyOf(tri(tags.drinking_water), tags.amenity === 'drinking_water' ? true : undefined),
     evCharging: tags.amenity === 'charging_station'
-      || Object.keys(tags).some((k) => k.startsWith('socket:')),
+      || Object.keys(tags).some((k) => k.startsWith('socket:')) ? true : undefined,
     ...hours(tags),
     status: 'published',
     source: 'openstreetmap',
     osmType: el.type,
     osmId: String(el.id),
-  };
+  });
 };
 
 // ── run ─────────────────────────────────────────────────────────────────────

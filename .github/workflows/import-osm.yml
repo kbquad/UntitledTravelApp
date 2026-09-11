@@ -1,0 +1,63 @@
+name: Import OSM
+
+# Re-imports Canada's stops from OpenStreetMap into Firestore. Run by hand
+# whenever the import mapping changes — a new facility, a new tag — or to
+# pick up what mappers have added since last time. Existing stops are
+# updated in place (the id is the OSM id), so it is safe to repeat.
+#
+# Uses the same Workload Identity Federation setup as deploy.yml, and the
+# same service account: roles/datastore.user is what lets it write.
+
+on:
+  workflow_dispatch:
+    inputs:
+      regions:
+        description: 'Province codes, comma-separated (blank = all)'
+        required: false
+        default: ''
+      dry_run:
+        description: 'Fetch and map, write nothing'
+        type: boolean
+        default: false
+
+jobs:
+  import:
+    runs-on: ubuntu-latest
+    # Thirteen Overpass queries, some of them slow; the default 360 min is
+    # far more than needed, but the per-query timeout is what actually bites.
+    timeout-minutes: 90
+
+    permissions:
+      contents: read
+      id-token: write
+
+    defaults:
+      run:
+        working-directory: app
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: app/package-lock.json
+
+      - run: npm ci
+
+      - id: auth
+        uses: google-github-actions/auth@v2
+        with:
+          project_id: ${{ vars.GCP_PROJECT_ID }}
+          workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ vars.GCP_SERVICE_ACCOUNT }}
+
+      - name: Import
+        env:
+          GOOGLE_CLOUD_PROJECT: ${{ vars.GCP_PROJECT_ID }}
+        run: |
+          ARGS=""
+          if [ -n "${{ inputs.regions }}" ]; then ARGS="$ARGS --regions=${{ inputs.regions }}"; fi
+          if [ "${{ inputs.dry_run }}" = "true" ]; then ARGS="$ARGS --dry-run"; fi
+          npm run import:osm -- $ARGS
