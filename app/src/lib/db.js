@@ -27,6 +27,28 @@ import { distanceMetres } from '../utils/geo';
 // close; without it, a bad box could try to stream the country.
 const REGION_LIMIT = 600;
 
+// Facility flags a stop record can carry, as stored booleans. The derived
+// ones — free, no key, open 24h — are not here: they fall out of the fee,
+// the key flag and the hours.
+const FACILITY_KEYS = [
+  'wheelchair', 'babyChange', 'genderNeutral', 'familyRoom',
+  'vanParking', 'showers', 'dogFriendly', 'water', 'evCharging',
+];
+
+// Copies across only the flags the record actually has.
+//
+// Coercing a missing field to false would turn "nobody has said whether this
+// place has showers" into "this place has no showers", which is a claim we
+// have no basis for and would put a cross next to it on the detail screen.
+// Left absent, it reads as unknown all the way through.
+const facilityFlags = (d) => {
+  const out = {};
+  for (const key of FACILITY_KEYS) {
+    if (key in d && d[key] != null) out[key] = !!d[key];
+  }
+  return out;
+};
+
 const toWashroom = (id, d) => ({
   id,
   name: d.name,
@@ -39,9 +61,7 @@ const toWashroom = (id, d) => ({
   lng: d.lng,
   fee: d.fee,
   needsKey: !!d.needsKey,
-  wheelchair: !!d.wheelchair,
-  babyChange: !!d.babyChange,
-  genderNeutral: !!d.genderNeutral,
+  ...facilityFlags(d),
   openFrom: Number(d.openFrom),
   openTo: Number(d.openTo),
   // Imported washrooms usually have no opening hours in OpenStreetMap. They
@@ -208,13 +228,24 @@ const remote = {
       area: nearestCity(lat, lng),
       lat,
       lng,
-      fee: features.free ? 'Free' : 'Check on site',
+      fee: features.isFree ? 'Free' : 'Check on site',
       needsKey: !features.noKey,
       wheelchair: !!features.wheelchair,
       babyChange: !!features.babyChange,
       genderNeutral: !!features.genderNeutral,
+      familyRoom: !!features.familyRoom,
+      vanParking: !!features.vanParking,
+      showers: !!features.showers,
+      dogFriendly: !!features.dogFriendly,
+      water: !!features.water,
+      evCharging: !!features.evCharging,
+      // The add form asks whether a stop is open around the clock, not what
+      // its hours are. Ticking "Open 24h" is a fact about the hours; leaving
+      // it means we don't know them, and the app says so rather than claiming
+      // the stop never closes.
       openFrom: 0,
       openTo: 24,
+      hoursKnown: !!features.open24,
       status: 'pending',
       submittedBy: uid,
       reviewCount: 0,

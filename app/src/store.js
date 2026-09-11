@@ -1,12 +1,19 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
+import { TRAVEL_PRESETS } from './data/locations';
 
 // Personal preferences only — these are genuinely per-device and stay in this
 // browser. Shared content (washrooms, reviews, scores) lives in the database;
 // see dataStore.js.
+// One entry per facility a stop can have, plus "open right now" — which is a
+// question about the clock rather than a facility, and so is not in
+// FACILITIES. Kept literal rather than derived from that list so a persisted
+// shape is readable here and the migration below has something to match.
 const defaultFilters = {
-  wheelchair: false, babyChange: false, genderNeutral: false,
-  free: false, openNow: false, noKey: false,
+  wheelchair: false, babyChange: false, familyRoom: false, open24: false,
+  isFree: false, vanParking: false, showers: false, dogFriendly: false,
+  water: false, evCharging: false, genderNeutral: false, noKey: false,
+  openNow: false,
 };
 
 // The look the app ships with. Named so the initial state and the migration
@@ -125,7 +132,17 @@ export const useStore = create(
       setCategoryFilter: (categoryFilter) => set({ categoryFilter }),
 
       // Road-trip companion additions -----------------------------------
-      setTravelPreset: (travelPreset) => set({ travelPreset }),
+      // Picking a travel profile ticks the facilities it stands for. The
+      // design describes each preset by what it needs — "changing tables,
+      // family rooms" — so it has to actually do that, or it is decoration.
+      // It only ever adds: nothing you ticked yourself is turned off.
+      setTravelPreset: (travelPreset) => set((s) => {
+        const preset = TRAVEL_PRESETS.find((p) => p.id === travelPreset);
+        if (!preset) return { travelPreset };
+        const filters = { ...s.filters };
+        preset.needs.forEach((key) => { filters[key] = true; });
+        return { travelPreset, filters };
+      }),
       toggleBreaks: () => set((s) => ({ breaksOn: !s.breaksOn })),
       setBreakHours: (breakHours) => set({ breakHours }),
 
@@ -148,7 +165,7 @@ export const useStore = create(
     }),
     {
       name: 'loo-preferences',
-      version: 7,
+      version: 8,
       partialize: (s) => ({
         onboarded: s.onboarded,
         displayName: s.displayName,
@@ -192,6 +209,10 @@ export const useStore = create(
       // carry the old value forward — everyone moves onto the design's teal.
       // Light/dark is left exactly as it was: that one is a deliberate choice
       // people make, unlike an accent nobody picked.
+      // v8 moves onto the design's facility vocabulary. Only one filter key
+      // is genuinely renamed — `free` becomes `isFree`, matching the name the
+      // rest of the app uses for it — and the six new road-trip facilities
+      // start off. Everything someone had ticked stays ticked.
       migrate: (state, version) => {
         if (!state) return state;
         const { userLocation: _dropped, ...rest } = state;
@@ -199,9 +220,15 @@ export const useStore = create(
         const withV6 = version >= 6
           ? withV5
           : { ...withV5, travelPreset: null, breaksOn: true, breakHours: 2, trips: [] };
-        if (version >= 7) return withV6;
-        return {
+        const withV7 = version >= 7 ? withV6 : {
           ...withV6, hue: DEFAULT_HUE, sat: DEFAULT_SAT, light: DEFAULT_LIGHT, bigText: false,
+        };
+        if (version >= 8) return withV7;
+
+        const { free, ...keptFilters } = withV7.filters ?? {};
+        return {
+          ...withV7,
+          filters: { ...defaultFilters, ...keptFilters, isFree: !!free },
         };
       },
     },

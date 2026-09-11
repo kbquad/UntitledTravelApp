@@ -8,15 +8,16 @@ import { useDataStore } from '../dataStore';
 import { useToastStore } from '../toastStore';
 import { useCurrentLocation } from '../hooks/useWashroomData';
 import { requestLocation } from '../lib/geolocation';
-import { FEATURES, TYPES_BY_CATEGORY, CATEGORIES } from '../data/locations';
+import { FACILITIES, TYPES_BY_CATEGORY, CATEGORIES } from '../data/locations';
 import {
   Pill, ScreenHeader, PrimaryButton, SecondaryButton, Segmented,
 } from '../components/ui';
 import { ProtectedNote } from '../components/ProtectedNote';
 
-const defaultFeatures = {
-  wheelchair: false, babyChange: false, genderNeutral: false, free: true, openNow: false, noKey: true,
-};
+// What a new stop starts out claiming. Free to use and walk-straight-in are
+// the common case and are pre-ticked; every other facility is something the
+// person adding it has to actually assert.
+const defaultFeatures = { isFree: true, noKey: true };
 
 // Icon path per stop kind, from the design's KINDS list.
 const KIND_ICON = {
@@ -237,7 +238,7 @@ export default function AddScreen({ t }) {
         <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
           <span style={{ fontSize: 13, fontWeight: 700, color: t.text }}>Facilities it has</span>
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-            {FEATURES.filter((f) => f.key !== 'openNow').map((f) => (
+            {FACILITIES.map((f) => (
               <Pill
                 key={f.key}
                 label={f.label}

@@ -122,6 +122,17 @@ const hours = (tags) => (tags['opening_hours'] === '24/7'
   // flagged so the app can say "hours unknown" instead of claiming 24/7.
   : { openFrom: 0, openTo: 24, hoursKnown: false });
 
+// `maxheight` is the height limit on the way in, in metres unless it says
+// otherwise. A tall van is around 2.8 m, so anything at or above 3 clears one
+// — and a barrier tagged with no number tells us nothing, so it stays false.
+const clearsAVan = (raw) => {
+  if (!raw) return false;
+  const m = String(raw).match(/^\s*(\d+(?:\.\d+)?)\s*(m|ft)?/i);
+  if (!m) return false;
+  const metres = m[2]?.toLowerCase() === 'ft' ? parseFloat(m[1]) * 0.3048 : parseFloat(m[1]);
+  return metres >= 3;
+};
+
 const fee = (tags) => {
   if (tags.fee === 'no') return 'Free';
   if (tags.fee === 'yes') return tags.charge ? `Costs ${tags.charge}` : 'Costs money';
@@ -167,6 +178,18 @@ const toDoc = (el, provinceName) => {
     wheelchair: yes(tags.wheelchair),
     babyChange: yes(tags.changing_table),
     genderNeutral: yes(tags.unisex) || tags['toilets:gender'] === 'unisex',
+    // The road-trip facilities. Each maps onto a tag OpenStreetMap actually
+    // uses; anything untagged comes through false, which the app reads as
+    // "not recorded" rather than "hasn't got one". Without this the six new
+    // filters would match nothing on imported data, permanently.
+    familyRoom: yes(tags['toilets:family']) || yes(tags.family)
+      || tags['changing_table:location'] === 'room',
+    vanParking: yes(tags.hgv) || clearsAVan(tags.maxheight),
+    showers: yes(tags.shower) || tags.amenity === 'shower',
+    dogFriendly: yes(tags.dog) || yes(tags.dogs),
+    water: yes(tags.drinking_water) || tags.amenity === 'drinking_water',
+    evCharging: tags.amenity === 'charging_station'
+      || Object.keys(tags).some((k) => k.startsWith('socket:')),
     ...hours(tags),
     status: 'published',
     source: 'openstreetmap',

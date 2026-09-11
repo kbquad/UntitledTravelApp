@@ -4,7 +4,7 @@ import { useStore } from '../store';
 import { useDataStore } from '../dataStore';
 import { stars } from '../theme';
 import { relativeTime } from '../utils/time';
-import { FEATURES } from '../data/locations';
+import { NEED_FACILITIES } from '../data/locations';
 import { Pill, PrimaryButton } from '../components/ui';
 import { DemoBanner } from '../components/Status';
 
@@ -124,7 +124,7 @@ export default function ProfileScreen({ t }) {
         <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
           <span style={{ fontSize: 13, fontWeight: 700, color: t.text }}>Facilities that matter to you</span>
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-            {FEATURES.map((f) => (
+            {NEED_FACILITIES.map((f) => (
               <Pill
                 key={f.key}
                 label={f.label}

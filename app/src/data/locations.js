@@ -162,13 +162,71 @@ export const CATEGORIES = [
 
 export const categoryLabel = (id) => (CATEGORIES.find((c) => c.id === id) || CATEGORIES[0]).label;
 
-export const FEATURES = [
-  { key: 'wheelchair', label: 'Wheelchair accessible', sub: 'Step-free entry and a wide stall' },
-  { key: 'babyChange', label: 'Baby change table', sub: 'Inside or beside the stalls' },
-  { key: 'genderNeutral', label: 'Gender-neutral option', sub: 'At least one all-gender room' },
-  { key: 'free', label: 'Free to use', sub: 'No fee, no purchase needed' },
-  { key: 'openNow', label: 'Open right now', sub: 'Based on posted hours' },
-  { key: 'noKey', label: 'No key or code needed', sub: 'Walk straight in' },
+// What a stop can have.
+//
+// The first ten are the design's vocabulary, in its order — this app started
+// as a washroom finder and inherited a washroom's idea of a facility, which
+// is why showers, van-height parking and EV charging were missing. A road
+// trip asks different questions.
+//
+// The last two are kept on the end because the imported OpenStreetMap data
+// genuinely answers them: dropping them to match the design exactly would
+// throw away information the app already holds.
+export const FACILITIES = [
+  { key: 'wheelchair', label: 'Step-free access', short: 'Step-free', sub: 'Level entry and a wide door' },
+  { key: 'babyChange', label: 'Baby changing', short: 'Changing', sub: 'A proper fold-down table' },
+  { key: 'familyRoom', label: 'Family room', short: 'Family room', sub: 'Room enough to go in together' },
+  { key: 'open24', label: 'Open 24h', short: '24h', sub: 'Any hour, not just office hours' },
+  { key: 'isFree', label: 'Free to use', short: 'Free', sub: 'No fee, no purchase needed' },
+  { key: 'vanParking', label: 'Van-height parking', short: 'Van parking', sub: 'No height barrier on the way in' },
+  { key: 'showers', label: 'Showers', short: 'Showers', sub: 'For the long hauls' },
+  { key: 'dogFriendly', label: 'Dog friendly', short: 'Dogs', sub: 'Somewhere to walk them' },
+  { key: 'water', label: 'Drinking water', short: 'Water', sub: 'A tap you can fill from' },
+  { key: 'evCharging', label: 'EV charging', short: 'EV', sub: 'Chargers on site' },
+  { key: 'genderNeutral', label: 'Gender-neutral', short: 'Gender-neutral', sub: 'At least one all-gender room' },
+  { key: 'noKey', label: 'No key needed', short: 'No key', sub: 'Walk straight in' },
+];
+
+export const facilityByKey = (key) => FACILITIES.find((f) => f.key === key);
+const pick = (keys) => keys.map(facilityByKey);
+
+// The design's three subsets, each exactly as it lists them. They differ on
+// purpose: you filter on fewer things than you can record, and a reviewer can
+// confirm things you wouldn't filter a map by.
+export const FILTER_FACILITIES = pick([
+  'wheelchair', 'babyChange', 'familyRoom', 'open24', 'isFree', 'dogFriendly',
+]);
+export const NEED_FACILITIES = pick([
+  'wheelchair', 'babyChange', 'familyRoom', 'open24', 'isFree', 'vanParking', 'showers', 'dogFriendly',
+]);
+export const REVIEW_FACILITIES = pick([
+  'wheelchair', 'babyChange', 'familyRoom', 'open24', 'isFree', 'water', 'vanParking', 'dogFriendly',
+]);
+
+// "Open right now" is not a facility — it is a question about the clock, and
+// it is the one filter people reach for most, so it sits beside them.
+export const OPEN_NOW = { key: 'openNow', label: 'Open right now', sub: 'Based on posted hours' };
+
+// The design's travel presets, and what each one actually means in filters.
+export const TRAVEL_PRESETS = [
+  {
+    id: 'family',
+    label: 'Family',
+    hint: 'Kids on board — changing tables, family rooms',
+    needs: ['babyChange', 'familyRoom'],
+  },
+  {
+    id: 'van',
+    label: 'Van life',
+    hint: 'Long hauls — showers, height-safe parking',
+    needs: ['showers', 'vanParking'],
+  },
+  {
+    id: 'access',
+    label: 'Accessible',
+    hint: 'Step-free, wide doors, grab rails',
+    needs: ['wheelchair'],
+  },
 ];
 
 export const REVIEW_TAGS = ['Spotless', 'Well stocked', 'No smell', 'Short wait', 'Dry floor', 'Needs attention'];

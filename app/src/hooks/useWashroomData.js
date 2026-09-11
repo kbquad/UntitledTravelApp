@@ -3,7 +3,7 @@ import { useStore, LOCATION_FRESH_MS } from '../store';
 import { useDataStore } from '../dataStore';
 import { cellKeyFor } from '../utils/region';
 import { FALLBACK_LOCATION } from '../data/locations';
-import { decorateWashroom } from '../utils/decorate';
+import { decorateWashroom, facilitiesOf } from '../utils/decorate';
 import { distanceMetres } from '../utils/geo';
 import { isOpenNow } from '../utils/hours';
 
@@ -60,11 +60,13 @@ const featureOk = (w, filters, minClean, categoryFilter) => {
   // An unrated washroom is unknown, not bad — but a minimum-rating filter is
   // an explicit request for proven-clean ones, so unrated drops out.
   if (minClean && (w.avgRating == null || w.avgRating < minClean)) return false;
-  if (filters.wheelchair && !w.wheelchair) return false;
-  if (filters.babyChange && !w.babyChange) return false;
-  if (filters.genderNeutral && !w.genderNeutral) return false;
-  if (filters.free && w.fee !== 'Free') return false;
-  if (filters.noKey && w.needsKey) return false;
+  // Facilities are resolved the same way the detail screen resolves them, so
+  // a filter and a stop's own facility list can never disagree about what it
+  // has. A ticked filter the stop doesn't record drops it: asking for showers
+  // means showers, not "showers, or nobody checked".
+  for (const f of facilitiesOf(w)) {
+    if (filters[f.key] && !f.has) return false;
+  }
   // "Open right now" is a request for places that are provably open. A
   // washroom whose hours nobody has recorded cannot make that claim, so it
   // drops out — the same reasoning as the minimum-rating filter above.

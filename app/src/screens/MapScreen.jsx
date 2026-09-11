@@ -11,10 +11,16 @@ import { useToastStore } from '../toastStore';
 import { useWashroomData, useCurrentLocation } from '../hooks/useWashroomData';
 import { useDataStore } from '../dataStore';
 import { requestLocation } from '../lib/geolocation';
-import { CITIES, CANADA_VIEW, CATEGORIES, FEATURES } from '../data/locations';
+import {
+  CITIES, CANADA_VIEW, CATEGORIES, FILTER_FACILITIES, OPEN_NOW,
+} from '../data/locations';
 import { distanceMetres, formatDistance } from '../utils/geo';
 import { pinIcon, youAreHereIcon } from '../utils/mapIcons';
 import { Pill, CategoryBadge, RoundButton } from '../components/ui';
+
+// The design's six facility chips, plus "open right now" — the one question
+// people actually reach for on a map, and the only addition to its list.
+const MAP_FILTERS = [...FILTER_FACILITIES, OPEN_NOW];
 
 // three.js is a large dependency and only the 3D view needs it, so it is
 // fetched when that view is actually shown.
@@ -109,7 +115,7 @@ export default function MapScreen({ t }) {
     if (!fix) flash(`Couldn’t get a fix — centred on ${here.label}.`);
   };
 
-  const activeFacilities = FEATURES.filter((f) => filters[f.key]);
+  const activeFacilities = MAP_FILTERS.filter((f) => filters[f.key]);
 
   // Stable identity: a fresh object every render would rebuild the scene's
   // markers on every render.
@@ -184,7 +190,7 @@ export default function MapScreen({ t }) {
         ))}
       </div>
       <div style={{ display: 'flex', gap: 8, marginTop: 8, overflowX: 'auto', pointerEvents: 'auto' }}>
-        {FEATURES.map((f) => (
+        {MAP_FILTERS.map((f) => (
           <Pill key={f.key} label={f.label} active={!!filters[f.key]} t={t} onClick={() => toggleFilter(f.key)} />
         ))}
       </div>

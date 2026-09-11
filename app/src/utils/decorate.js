@@ -1,34 +1,35 @@
 import { scoreColor } from '../theme';
 import { formatDistance, formatWalk } from './geo';
 import { formatStatus, formatHoursRange, isOpenNow } from './hours';
-import { categoryLabel } from '../data/locations';
+import { categoryLabel, FACILITIES } from '../data/locations';
 
-// The facilities the data can actually answer yes or no to. Anything not
-// recorded is absent from this list rather than shown as a "no" — claiming a
-// stop lacks a changing table when nobody ever recorded one is a different
-// statement from "it hasn't got one".
-export const FACILITY_FIELDS = [
-  { key: 'wheelchair', label: 'Step-free access', short: 'Accessible' },
-  { key: 'babyChange', label: 'Baby changing', short: 'Change table' },
-  { key: 'genderNeutral', label: 'Gender-neutral', short: 'Gender-neutral' },
-  { key: 'isFree', label: 'Free to use', short: 'Free' },
-  { key: 'noKey', label: 'No key needed', short: 'No key' },
-  { key: 'open24', label: 'Open 24h', short: '24h' },
-];
-
-// Resolves those fields for one stop, in one place, so the map, the list and
-// the detail screen cannot drift apart on what a stop is said to have.
+// Resolves the facility list for one stop, in one place, so the map, the list
+// and the detail screen cannot drift apart on what a stop is said to have.
+//
+// Most of these are plain stored booleans. Three are derived, because the
+// underlying record answers them a different way: the fee is a string, the
+// key is stored as its opposite, and "open 24h" falls out of the hours. A
+// stop whose hours are unknown is not claimed to be open around the clock.
+// `has` is true, false, or undefined for "nobody has said". The third state
+// is the point: a stop imported before showers were a field has not told us
+// it lacks showers, and a cross beside "Showers" would be us inventing that.
 export const facilitiesOf = (w) => {
-  const has = {
-    wheelchair: !!w.wheelchair,
-    babyChange: !!w.babyChange,
-    genderNeutral: !!w.genderNeutral,
+  const derived = {
     isFree: w.fee === 'Free',
     noKey: !w.needsKey,
-    open24: w.hoursKnown !== false && Number(w.openFrom) === 0 && Number(w.openTo) >= 24,
+    // Unknown hours cannot answer this either way.
+    open24: w.hoursKnown === false
+      ? undefined
+      : Number(w.openFrom) === 0 && Number(w.openTo) >= 24,
   };
-  return FACILITY_FIELDS.map((f) => ({ ...f, has: has[f.key] }));
+  return FACILITIES.map((f) => ({
+    ...f,
+    has: f.key in derived ? derived[f.key] : (f.key in w ? !!w[f.key] : undefined),
+  }));
 };
+
+// Only the ones the data can actually answer — what a stop's own page shows.
+export const knownFacilities = (w) => facilitiesOf(w).filter((f) => f.has !== undefined);
 
 // Attaches display-ready labels to a washroom.
 //
@@ -63,7 +64,9 @@ export const decorateWashroom = (w, distMetres, units) => {
     categoryLabel: categoryLabel(category),
     cleanPct,
     cleanLabel: cleanPct == null ? 'Not rated' : `${cleanPct}% clean`,
-    facilities: facilitiesOf(w),
+    // Only what the data can answer. Cards and detail pages show ticks and
+    // crosses, and there is nothing to draw for a facility nobody recorded.
+    facilities: knownFacilities(w),
     openNow: isOpenNow(w.openFrom, w.openTo),
     hoursKnown,
     hoursToday,

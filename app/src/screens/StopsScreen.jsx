@@ -9,13 +9,19 @@ import { MAP3D_CREDIT } from '../lib/mosaic';
 import { useStore } from '../store';
 import { useWashroomData, useCurrentLocation } from '../hooks/useWashroomData';
 import { useDataStore } from '../dataStore';
-import { CATEGORIES, FEATURES, CANADA_VIEW } from '../data/locations';
+import {
+  CATEGORIES, FILTER_FACILITIES, OPEN_NOW, CANADA_VIEW,
+} from '../data/locations';
 import { formatDistance } from '../utils/geo';
 import { pinIcon, youAreHereIcon } from '../utils/mapIcons';
 import { Pill, CategoryBadge } from '../components/ui';
 import { Loading, ErrorNote } from '../components/Status';
 
 const MapScene3D = lazy(() => import('../components/MapScene3D'));
+
+// The design's six facility chips, plus "open right now" — the one question
+// people actually reach for on a map, and the only addition to its list.
+const MAP_FILTERS = [...FILTER_FACILITIES, OPEN_NOW];
 
 // The design's Stops screen: a map across the top, two rows of filters, then
 // the list. The map is the real one rather than the mock's placeholder, at the
@@ -182,7 +188,7 @@ export default function StopsScreen({ t }) {
           ))}
         </div>
         <div style={{ display: 'flex', gap: 8, overflowX: 'auto' }}>
-          {FEATURES.map((f) => (
+          {MAP_FILTERS.map((f) => (
             <Pill
               key={f.key}
               label={f.label}
