@@ -149,6 +149,12 @@ const clearsAVan = (raw) => {
 
 const dropUndefined = (o) => Object.fromEntries(Object.entries(o).filter(([, v]) => v !== undefined));
 
+// The tri-state flags a doc can carry, for the per-province tally below.
+const FACILITY_KEYS = [
+  'wheelchair', 'babyChange', 'genderNeutral', 'familyRoom',
+  'vanParking', 'showers', 'dogFriendly', 'water', 'evCharging',
+];
+
 const fee = (tags) => {
   if (tags.fee === 'no') return 'Free';
   if (tags.fee === 'yes') return tags.charge ? `Costs ${tags.charge}` : 'Costs money';
@@ -237,6 +243,21 @@ for (const [code, iso, provinceName] of chosen) {
     if (doc) docs.push(doc); else skipped += 1;
   }
   console.log(`  ${docs.length} usable`);
+
+  // How many stops OSM actually says something about, per facility. This is
+  // the number that tells you whether a filter will return anything, and
+  // whether a tag mapping above is pulling its weight — a facility that never
+  // appears here is one nobody in the province has tagged.
+  const tally = {};
+  for (const d of docs) {
+    for (const k of FACILITY_KEYS) {
+      if (!(k in d)) continue;
+      tally[k] = tally[k] || { yes: 0, no: 0 };
+      tally[k][d[k] ? 'yes' : 'no'] += 1;
+    }
+  }
+  console.log(`  tagged yes/no: ${FACILITY_KEYS
+    .map((k) => `${k} ${tally[k] ? `${tally[k].yes}/${tally[k].no}` : '–'}`).join('  ')}`);
 
   if (dryRun) {
     for (const d of docs.slice(0, 3)) console.log(`    e.g. ${d.name} — ${d.type}, ${d.fee}`);
