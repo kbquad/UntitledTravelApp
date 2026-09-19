@@ -27,7 +27,7 @@ const withDeadline = (parent, ms) => {
   return c.signal;
 };
 
-const GRID = 96;          // vertices per side
+const GRID = 144;         // vertices per side
 const VERTICAL = 1.7;     // gentle relief exaggeration; a map read from above
                           // shows almost no shape at true scale
 
@@ -277,6 +277,7 @@ export default function MapScene3D({
     // building would be a thousand draw calls for a downtown; merged, a city
     // costs the same as a single object.
     const buildCity = (footprints) => {
+      const base = new THREE.Color(t.dark ? '#39414C' : '#EAE5DC');
       const parts = [];
       for (const { ring, height } of footprints) {
         const pts = ring.map((n) => {
@@ -303,6 +304,28 @@ export default function MapScene3D({
         // next to the DEM's resolution, so one sample each is plenty.
         geo.translate(0, elevOf(ring[0].lat, ring[0].lng), 0);
         geo.deleteAttribute('uv');   // merging needs every part to match
+
+        // A city where every block is the identical grey is the single most
+        // synthetic thing on this map. Real roofs and walls vary, so each
+        // building gets its own small shift in tone and warmth — keyed off
+        // its own position so it stays put between rebuilds rather than
+        // shimmering, and kept narrow so the result reads as a city rather
+        // than as confetti.
+        const seed = Math.abs(Math.sin(ring[0].lat * 12.9898 + ring[0].lng * 78.233) * 43758.5453) % 1;
+        const shade = base.clone();
+        shade.offsetHSL(
+          (seed - 0.5) * 0.035,                 // barely any hue drift
+          (seed - 0.5) * 0.04,
+          (seed - 0.5) * (t.dark ? 0.10 : 0.13),
+        );
+        const count = geo.attributes.position.count;
+        const colours = new Float32Array(count * 3);
+        for (let i = 0; i < count; i += 1) {
+          colours[i * 3] = shade.r;
+          colours[i * 3 + 1] = shade.g;
+          colours[i * 3 + 2] = shade.b;
+        }
+        geo.setAttribute('color', new THREE.BufferAttribute(colours, 3));
         parts.push(geo);
       }
       if (!parts.length) return;
@@ -313,7 +336,7 @@ export default function MapScene3D({
       merged.computeVertexNormals();
 
       const city = new THREE.Mesh(merged, new THREE.MeshLambertMaterial({
-        color: new THREE.Color(t.dark ? '#39414C' : '#EAE5DC'),
+        vertexColors: true,
         flatShading: true,     // so walls and roofs catch the sun differently
       }));
       city.name = 'city';
