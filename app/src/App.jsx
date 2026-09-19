@@ -4,6 +4,7 @@ import { useLocationWatch } from './hooks/useLocationWatch';
 import { useStore } from './store';
 import { BottomNav } from './components/BottomNav';
 import { Toast } from './components/Toast';
+import { UpdateBar } from './components/UpdateBar';
 
 import Onboarding from './screens/Onboarding';
 import Home from './screens/Home';
@@ -68,6 +69,7 @@ function App() {
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
       <Toast t={t} />
+      <UpdateBar t={t} />
     </div>
   );
 }

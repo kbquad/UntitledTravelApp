@@ -28,6 +28,13 @@
         "headers": [
           { "key": "Cache-Control", "value": "public, max-age=3600" }
         ]
+      },
+      {
+        "//": "How a tab that is already open finds out a newer build shipped. Caching this would defeat the entire point of it.",
+        "source": "/version.json",
+        "headers": [
+          { "key": "Cache-Control", "value": "no-cache, must-revalidate" }
+        ]
       }
     ]
   },

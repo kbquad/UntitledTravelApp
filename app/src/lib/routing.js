@@ -38,25 +38,37 @@ export async function geocode(text, { limit = 5, signal } = {}) {
 // simulation and the route strip, just not real road distance — if OSRM is
 // unreachable or refuses the request.
 export async function route(points, { signal } = {}) {
+  const all = await routeOptions(points, { signal });
+  return all[0];
+}
+
+// Every route OSRM will offer for these points, fastest first.
+//
+// `alternatives` only applies to a plain A-to-B request: OSRM does not offer
+// alternatives once there are via points, and asking anyway is not an error,
+// it just comes back with one route. Either way the first is the one the
+// router considers best, and the caller picks from whatever it gets.
+export async function routeOptions(points, { signal } = {}) {
   if (!points || points.length < 2) throw new Error('route() needs at least two points');
   try {
     const coords = points.map((p) => `${p.lng},${p.lat}`).join(';');
-    const url = `${OSRM_URL}${coords}?overview=full&geometries=geojson&steps=false`;
+    const alt = points.length === 2 ? '&alternatives=2' : '';
+    const url = `${OSRM_URL}${coords}?overview=full&geometries=geojson&steps=false${alt}`;
     const res = await fetch(url, { signal });
     if (!res.ok) throw new Error(`OSRM ${res.status}`);
     const doc = await res.json();
     if (doc.code !== 'Ok' || !doc.routes?.length) throw new Error(doc.message || 'OSRM found no route');
-    const best = doc.routes[0];
-    const path = best.geometry.coordinates.map(([lng, lat]) => ({ lat, lng }));
-    return {
+
+    return doc.routes.map((r, i) => ({
       source: 'osrm',
-      distanceM: best.distance,
-      durationS: best.duration,
-      path,
-      legs: best.legs ?? null,
-    };
+      id: `osrm-${i}`,
+      distanceM: r.distance,
+      durationS: r.duration,
+      path: r.geometry.coordinates.map(([lng, lat]) => ({ lat, lng })),
+      legs: r.legs ?? null,
+    }));
   } catch (e) {
-    return straightLineRoute(points, e);
+    return [straightLineRoute(points, e)];
   }
 }
 
@@ -67,12 +79,42 @@ function straightLineRoute(points, cause) {
   }
   return {
     source: 'fallback',
+    id: 'fallback',
     distanceM,
     durationS: distanceM / FALLBACK_SPEED_MPS,
     path: points,
     legs: null,
     error: cause?.message ?? String(cause),
   };
+}
+
+// Names a set of alternatives the way a person would describe them: the
+// quickest one, and then whatever is actually different about the others.
+// OSRM hands back geometry and numbers, not labels, so this is derived from
+// the numbers rather than invented.
+export function describeOptions(options, unitsLabel) {
+  const quickest = Math.min(...options.map((o) => o.durationS));
+  const shortest = Math.min(...options.map((o) => o.distanceM));
+  const lone = options.length === 1;
+
+  return options.map((o) => {
+    if (o.source === 'fallback') {
+      return { ...o, name: 'Estimated', detail: 'Router unreachable — straight-line distance' };
+    }
+    // With nothing to compare against — a route through via stops, which
+    // OSRM does not offer alternatives for — a superlative is meaningless.
+    if (lone) return { ...o, name: 'Driving route', detail: '' };
+    const isQuickest = o.durationS === quickest;
+    const isShortest = o.distanceM === shortest;
+    if (isQuickest) return { ...o, name: 'Fastest', detail: isShortest ? 'Shortest too' : 'Quickest by the clock' };
+    if (isShortest) return { ...o, name: 'Shortest', detail: `${Math.round((o.durationS - quickest) / 60)} min slower` };
+    return {
+      ...o,
+      name: 'Alternative',
+      detail: `${Math.round((o.durationS - quickest) / 60)} min slower · ${
+        Math.round(Math.abs(o.distanceM - shortest) / 1000)} ${unitsLabel} further`,
+    };
+  });
 }
 
 // Cumulative distance (metres) at each vertex of a path — the along-route

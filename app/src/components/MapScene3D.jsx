@@ -4,6 +4,7 @@ import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js
 import { demSampler } from '../lib/dem';
 import { fetchBuildings, BUILDING_SPAN_M } from '../lib/buildings';
 import { pinTexture } from '../lib/pinTexture';
+import { labelTexture } from '../lib/labelTexture';
 import { categoryColor } from '../theme';
 import {
   tileMosaic, boxAround, lngToGlobalX, latToGlobalY, gradeCanvas, GRADE,
@@ -16,6 +17,7 @@ const IMAGERY_URL = (x, y, z) => `https://server.arcgisonline.com/ArcGIS/rest/se
 // A map area is an axis-aligned box in Mercator, so unlike the drive corridor
 // the ground here is a plain grid and the imagery is a straight tile mosaic —
 // UVs interpolate linearly across it with no resampling.
+
 // A signal that fires when either the parent aborts or `ms` passes.
 const withDeadline = (parent, ms) => {
   const c = new AbortController();
@@ -104,6 +106,7 @@ export default function MapScene3D({
 
     const pins = [];        // everything to tear down on the next pass
     const pickables = [];   // what the raycaster is allowed to hit
+    const labels = [];      // name plates, shown or hidden by the declutterer
 
     const buildMarkers = () => {
       // Sprite textures are shared and cached by colour, so the material is
@@ -111,6 +114,7 @@ export default function MapScene3D({
       pins.forEach((m) => { world.remove(m); m.geometry?.dispose?.(); m.material.dispose(); });
       pins.length = 0;
       pickables.length = 0;
+      labels.length = 0;
 
       (stopsRef.current ?? []).forEach((s) => {
         const p = toLocal(s.lat, s.lng);
@@ -154,6 +158,28 @@ export default function MapScene3D({
         world.add(hit);
         pins.push(hit);
         pickables.push(hit);
+
+        // The name plate above the pin. Labels are drawn at a fixed size on
+        // screen rather than shrinking with distance — that is what makes a
+        // map readable at a glance — so `sizeAttenuation` is off and the
+        // sprite is scaled from the viewport in `layoutLabels`.
+        const plate = labelTexture(s.name, {
+          bg: t.card, fg: t.text, accent: t.accent, selected: on,
+        });
+        const label = new THREE.Sprite(new THREE.SpriteMaterial({
+          map: plate.texture,
+          depthTest: false,          // a name is worth seeing over a hillside
+          sizeAttenuation: false,
+          transparent: true,
+        }));
+        label.center.set(0.5, 0);
+        label.position.set(p.x, ground + size * 1.75, p.z);
+        label.renderOrder = 10;
+        label.userData = { stop: s, aspect: plate.aspect, selected: on };
+        label.visible = false;       // until the declutterer says otherwise
+        world.add(label);
+        pins.push(label);
+        labels.push(label);
       });
 
       // Where you are, as a ring on the ground — the flat map's blue dot,
@@ -404,6 +430,76 @@ export default function MapScene3D({
       zoomBy(1 + Math.sign(e.deltaY) * 0.12);
     };
 
+    // ── label decluttering ──────────────────────────────────────────────────
+    //
+    // Every stop gets a name plate, but a city's worth of them overlapping is
+    // less readable than none at all. Each pass projects them to the screen,
+    // takes them nearest-camera first, and keeps one only if its box is still
+    // clear — so the labels you get are the ones closest to you, and they
+    // never sit on top of each other. The selected stop always wins.
+    //
+    // Cheap enough at ~60 labels, but it is O(n²) against what has been
+    // accepted, so it runs a few times a second rather than every frame.
+    const LABEL_PX = 20;              // on-screen height of a plate
+    const GAP_PX = 5;                 // breathing room between plates
+    const MAX_LABELS = 16;            // past this a map reads as a word search
+    const projected = new THREE.Vector3();
+
+    const layoutLabels = () => {
+      const w = mount.clientWidth;
+      const h = mount.clientHeight;
+      if (!w || !h || !labels.length) return;
+
+      // With sizeAttenuation off, three.js multiplies the sprite's scale by
+      // the view depth, cancelling the perspective divide. What is left is
+      // scale * (1 / tan(fov/2)) in NDC — so this is the factor that turns a
+      // wanted pixel height into the scale that produces it, on both axes.
+      const perPx = (2 * Math.tan((camera.fov * Math.PI) / 360)) / h;
+
+      const candidates = [];
+      for (const label of labels) {
+        label.scale.set(LABEL_PX * label.userData.aspect * perPx, LABEL_PX * perPx, 1);
+
+        projected.copy(label.position).project(camera);
+        const behind = projected.z > 1 || projected.z < -1;
+        const x = (projected.x * 0.5 + 0.5) * w;
+        const y = (-projected.y * 0.5 + 0.5) * h;
+        const pw = LABEL_PX * label.userData.aspect;
+        // A plate must fit entirely on screen. Letting one hang off the edge
+        // reads as a bug, and a half-name is no use anyway.
+        if (behind || x - pw / 2 < 4 || x + pw / 2 > w - 4 || y - LABEL_PX < 4 || y > h - 4) {
+          label.visible = false;
+          continue;
+        }
+        candidates.push({
+          label,
+          depth: projected.z,
+          // The plate sits above its anchor, hence the -LABEL_PX.
+          box: [x - pw / 2 - GAP_PX, y - LABEL_PX - GAP_PX, x + pw / 2 + GAP_PX, y + GAP_PX],
+        });
+      }
+
+      // Selected first, then nearest. Everything else competes for space.
+      candidates.sort((a, b) => {
+        if (a.label.userData.selected !== b.label.userData.selected) {
+          return a.label.userData.selected ? -1 : 1;
+        }
+        return a.depth - b.depth;
+      });
+
+      const taken = [];
+      for (const c of candidates) {
+        if (taken.length >= MAX_LABELS) { c.label.visible = false; continue; }
+        const [ax0, ay0, ax1, ay1] = c.box;
+        let clear = true;
+        for (const [bx0, by0, bx1, by1] of taken) {
+          if (ax0 < bx1 && ax1 > bx0 && ay0 < by1 && ay1 > by0) { clear = false; break; }
+        }
+        c.label.visible = clear;
+        if (clear) taken.push(c.box);
+      }
+    };
+
     const ray = new THREE.Raycaster();
     const pick = (e) => {
       if (!onSelect) return;
@@ -437,14 +533,20 @@ export default function MapScene3D({
         selectedRef.current = nextSelected;
         meRef.current = nextMe;
         buildMarkers();
+        layoutLabels();
       },
     };
     if (sceneApi) sceneApi.current = apiRef.current;
 
-    const tick = () => {
+    // Labels are re-laid-out a few times a second, not every frame: the
+    // pass is O(n^2) against what it has accepted, and nothing moves fast
+    // enough for the difference to show.
+    let lastLayout = 0;
+    const tick = (now = 0) => {
       if (disposed) return;
       raf = requestAnimationFrame(tick);
       if (!interactive) { yaw += 0.0009; place(); }   // a slow drift for the static header
+      if (now - lastLayout > 140) { lastLayout = now; layoutLabels(); }
       renderer.render(scene, camera);
     };
     tick();

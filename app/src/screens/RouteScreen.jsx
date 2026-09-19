@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useStore } from '../store';
 import { useToastStore } from '../toastStore';
-import { route as fetchRoute } from '../lib/routing';
+import { routeOptions as fetchRouteOptions, describeOptions } from '../lib/routing';
 import { formatDistance, formatDuration } from '../utils/geo';
 import { CATEGORIES } from '../data/locations';
 import {
@@ -34,25 +34,28 @@ export default function RouteScreen({ t }) {
   const [addingVia, setAddingVia] = useState(false);
   const [loading, setLoading] = useState(false);
   const [share, setShare] = useState(false);
+  const [options, setOptions] = useState([]);
 
   const ready = !!(tripFrom && tripTo);
 
   useEffect(() => {
-    if (!ready) { setActiveRoute(null); return undefined; }
+    if (!ready) { setActiveRoute(null); setOptions([]); return undefined; }
     let cancelled = false;
     const controller = new AbortController();
     setLoading(true);
-    fetchRoute([tripFrom, ...tripVia, tripTo], { signal: controller.signal }).then((r) => {
+    fetchRouteOptions([tripFrom, ...tripVia, tripTo], { signal: controller.signal }).then((rs) => {
       if (cancelled) return;
-      setActiveRoute(r);
+      const described = describeOptions(rs, units === 'Metric' ? 'km' : 'mi');
+      setOptions(described);
+      setActiveRoute(described[0]);
       setLoading(false);
-      if (r.source === 'fallback') {
+      if (described[0].source === 'fallback') {
         flash('Couldn’t reach the live router — showing an estimated straight-line distance.');
       }
     });
     return () => { cancelled = true; controller.abort(); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [ready, tripFrom, tripTo, tripVia]);
+  }, [ready, tripFrom, tripTo, tripVia, units]);
 
   const startDrive = () => {
     if (!ready) { flash('Add a starting point and destination first.'); return; }
@@ -189,37 +192,63 @@ export default function RouteScreen({ t }) {
         </div>
 
         <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-          <span style={{ fontSize: 13, fontWeight: 700, color: t.sub }}>Route</span>
-          <div style={{
-            borderRadius: 16, background: t.card, border: `1.5px solid ${ready && activeRoute ? t.accent : t.line}`,
-            padding: '15px 16px', minHeight: 72, display: 'flex', alignItems: 'center',
-            justifyContent: 'space-between', gap: 12,
-          }}
-          >
-            {!ready && (
+          <span style={{ fontSize: 13, fontWeight: 700, color: t.sub }}>
+            {options.length > 1 ? 'Route options' : 'Route'}
+          </span>
+
+          {!ready && (
+            <div style={{
+              borderRadius: 16, background: t.card, border: `1px solid ${t.line}`,
+              padding: '15px 16px', minHeight: 72, display: 'flex', alignItems: 'center',
+            }}
+            >
               <span style={{ fontSize: 13, lineHeight: 1.5, color: t.body }}>
                 Pick a starting point and a destination to see the route.
               </span>
-            )}
-            {ready && loading && <span style={{ fontSize: 13, color: t.body }}>Routing…</span>}
-            {ready && !loading && activeRoute && (
-              <>
-                <span style={{ display: 'flex', flexDirection: 'column', gap: 4, textAlign: 'left' }}>
-                  <span style={{ fontSize: 16, fontWeight: 700, color: t.text }}>
-                    {activeRoute.source === 'osrm' ? 'Fastest' : 'Estimated'}
-                  </span>
+            </div>
+          )}
+
+          {ready && loading && (
+            <div style={{
+              borderRadius: 16, background: t.card, border: `1px solid ${t.line}`,
+              padding: '15px 16px', minHeight: 72, display: 'flex', alignItems: 'center',
+            }}
+            >
+              <span style={{ fontSize: 13, color: t.body }}>Routing…</span>
+            </div>
+          )}
+
+          {/* One card per route the router offered, the way the design lays
+              them out. Names and details come from comparing the options to
+              each other — OSRM returns geometry and numbers, not labels. */}
+          {ready && !loading && options.map((o) => {
+            const on = activeRoute?.id === o.id;
+            return (
+              <button
+                key={o.id}
+                type="button"
+                onClick={() => setActiveRoute(o)}
+                aria-pressed={on}
+                style={{
+                  width: '100%', minHeight: 72, padding: '15px 16px', borderRadius: 16,
+                  cursor: 'pointer', display: 'flex', alignItems: 'center',
+                  justifyContent: 'space-between', gap: 12, textAlign: 'left',
+                  background: t.card, border: `1.5px solid ${on ? t.accent : t.line}`,
+                }}
+              >
+                <span style={{ display: 'flex', flexDirection: 'column', gap: 4, minWidth: 0 }}>
+                  <span style={{ fontSize: 16, fontWeight: 700, color: t.text }}>{o.name}</span>
                   <span style={{ fontSize: 13, color: t.body }}>
-                    {formatDistance(activeRoute.distanceM, units)}
-                    {tripVia.length ? ` · ${tripVia.length} via stop${tripVia.length === 1 ? '' : 's'}` : ''}
-                    {activeRoute.source === 'osrm' ? '' : ' · router unreachable'}
+                    {formatDistance(o.distanceM, units)}
+                    {o.detail ? ` · ${o.detail}` : ''}
                   </span>
                 </span>
                 <span style={{ fontSize: 15, fontWeight: 800, color: t.accent, flex: 'none' }}>
-                  {formatDuration(activeRoute.durationS)}
+                  {formatDuration(o.durationS)}
                 </span>
-              </>
-            )}
-          </div>
+              </button>
+            );
+          })}
         </div>
 
         <div style={{
