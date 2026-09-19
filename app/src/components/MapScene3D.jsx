@@ -32,7 +32,7 @@ const VERTICAL = 1.7;     // gentle relief exaggeration; a map read from above
                           // shows almost no shape at true scale
 
 export default function MapScene3D({
-  centre, spanM = 5000, stops = [], me, t, selectedId, onSelect, onStatus, sceneApi,
+  centre, spanM = 5000, stops = [], me, route, t, selectedId, onSelect, onStatus, sceneApi,
   interactive = true, pinScale = 1,
 }) {
   const mountRef = useRef(null);
@@ -40,6 +40,7 @@ export default function MapScene3D({
   const stopsRef = useRef(stops);
   const selectedRef = useRef(selectedId);
   const meRef = useRef(me);
+  const routeRef = useRef(route);
 
   // Rebuilding the world is expensive, so it is keyed on a coarse centre:
   // small movements pan the camera, they do not refetch tiles.
@@ -271,11 +272,90 @@ export default function MapScene3D({
       if (old) { world.remove(old); old.geometry.dispose(); old.material.map?.dispose(); old.material.dispose(); }
       world.add(ground);
       buildMarkers();
+      buildRoute();
     };
 
     // Extrudes footprints onto the terrain as one merged mesh. One mesh per
     // building would be a thousand draw calls for a downtown; merged, a city
     // costs the same as a single object.
+    // The planned route, laid on the ground as a ribbon.
+    //
+    // A trip is the whole point of the app, and until now the map had no idea
+    // one existed. Only the part crossing this view is drawn — a 400 km drive
+    // seen from a 5 km map is mostly elsewhere — and it is lifted a few metres
+    // so it reads as painted on the terrain rather than buried in it.
+    const buildRoute = () => {
+      const old = world.getObjectByName('route');
+      if (old) { world.remove(old); old.geometry.dispose(); old.material.dispose(); }
+
+      const path = routeRef.current;
+      if (!path || path.length < 2) return;
+
+      const half = spanM / 2;
+      const pad = half * 0.2;          // keep a little beyond the edge, so the
+      const wide = half + pad;         // ribbon runs off-screen rather than stopping
+      const local = path.map((p) => ({ ...toLocal(p.lat, p.lng), lat: p.lat, lng: p.lng }));
+
+      // Walk the path and keep the runs that touch the view, so a route that
+      // leaves and comes back does not get joined by a straight line across
+      // the middle of the map.
+      const runs = [];
+      let run = [];
+      for (let i = 0; i < local.length; i += 1) {
+        const p = local[i];
+        const inside = Math.abs(p.x) <= wide && Math.abs(p.z) <= wide;
+        if (inside) run.push(p);
+        else if (run.length) { run.push(p); runs.push(run); run = []; }
+      }
+      if (run.length > 1) runs.push(run);
+      if (!runs.length) return;
+
+      const W = Math.max(14, spanM / 260);   // half-width, in metres
+      const positions = [];
+      const indices = [];
+      let base = 0;
+
+      for (const r of runs) {
+        if (r.length < 2) continue;
+        for (let i = 0; i < r.length; i += 1) {
+          const prev = r[Math.max(0, i - 1)];
+          const next = r[Math.min(r.length - 1, i + 1)];
+          let dx = next.x - prev.x;
+          let dz = next.z - prev.z;
+          const len = Math.hypot(dx, dz) || 1;
+          dx /= len; dz /= len;
+          // Normal in the ground plane.
+          const nx = -dz;
+          const nz = dx;
+          const y = elevOf(r[i].lat, r[i].lng) + 6;
+          positions.push(r[i].x + nx * W, y, r[i].z + nz * W);
+          positions.push(r[i].x - nx * W, y, r[i].z - nz * W);
+        }
+        for (let i = 0; i < r.length - 1; i += 1) {
+          const a = base + i * 2;
+          indices.push(a, a + 1, a + 2, a + 2, a + 1, a + 3);
+        }
+        base += r.length * 2;
+      }
+      if (!indices.length) return;
+
+      const geo = new THREE.BufferGeometry();
+      geo.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+      geo.setIndex(indices);
+      geo.computeVertexNormals();
+
+      const ribbon = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({
+        color: new THREE.Color(t.accent),
+        transparent: true,
+        opacity: 0.92,
+        depthWrite: false,
+        side: THREE.DoubleSide,
+      }));
+      ribbon.name = 'route';
+      ribbon.renderOrder = 1;
+      world.add(ribbon);
+    };
+
     const buildCity = (footprints) => {
       const base = new THREE.Color(t.dark ? '#39414C' : '#EAE5DC');
       const parts = [];
@@ -551,11 +631,14 @@ export default function MapScene3D({
       zoomIn: () => zoomBy(1 / 1.35),
       zoomOut: () => zoomBy(1.35),
       resetView: () => { yaw = 0; pitch = restPitch; dist = restDist; place(); },
-      refreshMarkers: (nextStops, nextSelected, nextMe) => {
+      refreshMarkers: (nextStops, nextSelected, nextMe, nextRoute) => {
         stopsRef.current = nextStops;
         selectedRef.current = nextSelected;
         meRef.current = nextMe;
+        const routeChanged = routeRef.current !== nextRoute;
+        routeRef.current = nextRoute;
         buildMarkers();
+        if (routeChanged) buildRoute();
         layoutLabels();
       },
     };
@@ -609,8 +692,8 @@ export default function MapScene3D({
   }, [key, t.dark, interactive]);
 
   useEffect(() => {
-    apiRef.current?.refreshMarkers?.(stops, selectedId, me);
-  }, [stops, selectedId, me]);
+    apiRef.current?.refreshMarkers?.(stops, selectedId, me, route);
+  }, [stops, selectedId, me, route]);
 
   return <div ref={mountRef} style={{ position: 'absolute', inset: 0 }} />;
 }

@@ -35,6 +35,7 @@ export default function StopsScreen({ t }) {
   const filters = useStore((s) => s.filters);
   const toggleFilter = useStore((s) => s.toggleFilter);
   const map3d = useStore((s) => s.map3d);
+  const activeRoute = useStore((s) => s.activeRoute);
   const units = useStore((s) => s.units);
   const radius = useStore((s) => s.radius);
   const setRadius = useStore((s) => s.setRadius);
@@ -98,6 +99,7 @@ export default function StopsScreen({ t }) {
             spanM={4000}
             stops={mapPool.slice(0, 60)}
             me={meDot}
+            route={activeRoute?.path}
             interactive={false}
             pinScale={2.4}
             onStatus={(s) => {

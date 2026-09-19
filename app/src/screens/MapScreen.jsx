@@ -2,7 +2,7 @@ import {
   lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState,
 } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { MapContainer, Marker } from 'react-leaflet';
+import { MapContainer, Marker, Polyline } from 'react-leaflet';
 import MapReady from '../components/MapReady';
 import BaseTiles from '../components/BaseTiles';
 import { MAP3D_CREDIT } from '../lib/mosaic';
@@ -43,6 +43,7 @@ export default function MapScreen({ t }) {
   const toggleFilter = useStore((s) => s.toggleFilter);
   const map3d = useStore((s) => s.map3d);
   const setMap3d = useStore((s) => s.setMap3d);
+  const activeRoute = useStore((s) => s.activeRoute);
 
   const { mapPool } = useWashroomData();
   const here = useCurrentLocation();
@@ -54,6 +55,9 @@ export default function MapScreen({ t }) {
   // Where the 3D view is looking. Null means "wherever you are", so the
   // scene follows the location fix exactly as the flat map does.
   const [centre3d, setCentre3d] = useState(null);
+  // Set only when someone asks to see the whole trip; otherwise the map
+  // stays at its normal neighbourhood span.
+  const [routeSpan, setRouteSpan] = useState(null);
   const [tileTrouble, setTileTrouble] = useState(false);
   // null | 'webgl' | 'tiles'. WebGL missing is permanent for this device;
   // tiles not arriving is a network moment, so that one stays retryable.
@@ -110,6 +114,7 @@ export default function MapScreen({ t }) {
     followedFrom.current = { lat: target.lat, lng: target.lng };
     setFollowing(true);
     setCentre3d(null);
+    setRouteSpan(null);
     scene.current?.resetView();
     map?.flyTo([target.lat, target.lng], 15, { duration: 1 });
     if (!fix) flash(`Couldn’t get a fix — centred on ${here.label}.`);
@@ -129,6 +134,9 @@ export default function MapScreen({ t }) {
   // empty rectangle, and the toggle still lets anyone choose.
   const show3d = map3d && !threeDFailed;
 
+  const routePath = activeRoute?.path;
+  const hasRoute = routePath?.length > 1;
+
   // One set of controls drives whichever view is on screen: Leaflet pans and
   // zooms itself, the scene pulls its camera in and moves its terrain.
   const view = {
@@ -138,6 +146,31 @@ export default function MapScreen({ t }) {
       setFollowing(false);
       if (show3d) { setCentre3d({ lat, lng }); scene.current?.resetView(); } else {
         map?.flyTo([lat, lng], zoom, { duration: 1 });
+      }
+    },
+    // Puts the whole planned trip on screen. Leaflet has fitBounds; the 3D
+    // scene is told to look at the middle of the route over a span wide
+    // enough to contain it, and its tile fetches drop a zoom level by
+    // themselves when that span gets big.
+    frameRoute: () => {
+      if (!hasRoute) return;
+      setFollowing(false);
+      let minLat = 90; let maxLat = -90; let minLng = 180; let maxLng = -180;
+      for (const p of routePath) {
+        if (p.lat < minLat) minLat = p.lat;
+        if (p.lat > maxLat) maxLat = p.lat;
+        if (p.lng < minLng) minLng = p.lng;
+        if (p.lng > maxLng) maxLng = p.lng;
+      }
+      if (show3d) {
+        const mid = { lat: (minLat + maxLat) / 2, lng: (minLng + maxLng) / 2 };
+        const tall = (maxLat - minLat) * 110540;
+        const wide = (maxLng - minLng) * 111320 * Math.cos((mid.lat * Math.PI) / 180);
+        setCentre3d(mid);
+        setRouteSpan(Math.min(400000, Math.max(4000, Math.max(tall, wide) * 1.25)));
+        scene.current?.resetView();
+      } else {
+        map?.fitBounds([[minLat, minLng], [maxLat, maxLng]], { padding: [40, 40] });
       }
     },
   };
@@ -219,6 +252,13 @@ export default function MapScreen({ t }) {
           <circle cx="12" cy="12" r="3.4" /><path d="M12 2v3M12 19v3M2 12h3M19 12h3" />
         </svg>
       </RoundButton>
+      {hasRoute && (
+        <RoundButton onClick={view.frameRoute} t={t} label="Show the whole route">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={t.text} strokeWidth="2" strokeLinecap="round">
+            <path d="M4 19V7a3 3 0 0 1 3-3h6a4 4 0 0 1 0 8H9a4 4 0 0 0 0 8h11" />
+          </svg>
+        </RoundButton>
+      )}
       <RoundButton onClick={() => navigate('/add')} t={t} label="Add a stop" style={{ background: t.accent, border: 0 }}>
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={t.onInk} strokeWidth="2.6" strokeLinecap="round"><path d="M12 5v14M5 12h14" /></svg>
       </RoundButton>
@@ -330,9 +370,10 @@ export default function MapScreen({ t }) {
         <Suspense fallback={null}>
         <MapScene3D
           centre={centre3d ?? { lat: here.lat, lng: here.lng }}
-          spanM={5000}
+          spanM={routeSpan ?? 5000}
           stops={mapPool}
           me={meDot}
+          route={activeRoute?.path}
           selectedId={selected?.id}
           onSelect={setSelected}
           onStatus={(s) => {
@@ -365,6 +406,20 @@ export default function MapScreen({ t }) {
           onTrouble={() => setTileTrouble(true)}
           onProvider={(p) => setCredit(p.attribution)}
         />
+        {/* The planned route, if there is one — a casing underneath so the
+            line stays visible over both pale and dark ground. */}
+        {activeRoute?.path?.length > 1 && (
+          <>
+            <Polyline
+              positions={activeRoute.path.map((p) => [p.lat, p.lng])}
+              pathOptions={{ color: t.card, weight: 9, opacity: 0.85, lineCap: 'round' }}
+            />
+            <Polyline
+              positions={activeRoute.path.map((p) => [p.lat, p.lng])}
+              pathOptions={{ color: t.accent, weight: 5, opacity: 0.95, lineCap: 'round' }}
+            />
+          </>
+        )}
         {here.fromDevice && (
           <Marker position={[here.lat, here.lng]} icon={youAreHereIcon(t.accent)} opacity={here.live ? 1 : 0.45} />
         )}
